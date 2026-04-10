@@ -1,0 +1,11 @@
+.git
+.gitignore
+.vscode
+.idea
+
+# Runtime data
+data/
+
+# Python cache
+**/__pycache__/
+**/*.pyc

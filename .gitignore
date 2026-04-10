@@ -56,3 +56,6 @@ uv.lock
 # Environment files
 .env
 .env.*
+
+# Runtime data
+data/
