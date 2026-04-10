@@ -1,4 +1,4 @@
-from redis import Redis
+from redis.asyncio import Redis
 from app.config.settings import settings
 
 def get_redis_client(db: int) -> Redis | None:

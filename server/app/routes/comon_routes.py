@@ -12,3 +12,12 @@ async def home(request: Request):
         name="index.html",
         context={"title": "IoT Midterm"},
     )
+
+
+@router.get("/status")
+async def status(request: Request):
+    return templates.TemplateResponse(
+        request=request,
+        name="status.html",
+        context={"title": "Broker Status"},
+    )

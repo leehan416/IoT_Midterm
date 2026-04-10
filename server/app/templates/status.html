@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>{{ title }}</title>
+    <link rel="stylesheet" href="/static/css/app.css"/>
+</head>
+<body>
+<main class="container">
+    <section class="hero">
+        <div>
+            <h1 class="page-title">{{ title }}</h1>
+            <p class="page-subtitle">Live broker availability and connection overview</p>
+        </div>
+        <div class="hero-meta" id="last-updated">Updated just now</div>
+    </section>
+
+    <section class="summary-grid">
+        <article class="summary-card">
+            <span>Total Brokers</span>
+            <strong id="total-brokers">0</strong>
+        </article>
+        <article class="summary-card">
+            <span>Active</span>
+            <strong id="active-brokers">0</strong>
+        </article>
+        <article class="summary-card">
+            <span>Inactive</span>
+            <strong id="inactive-brokers">0</strong>
+        </article>
+        <article class="summary-card">
+            <span>Total Connections</span>
+            <strong id="total-connections">0</strong>
+        </article>
+    </section>
+
+    <section class="table-card">
+        <table class="status-table">
+            <thead>
+            <tr>
+                <th>Status</th>
+                <th>Host</th>
+                <th>Port</th>
+                <th>Connections</th>
+                <th>Disable</th>
+            </tr>
+            </thead>
+            <tbody id="broker-table-body"></tbody>
+        </table>
+    </section>
+</main>
+<script>
+    const POLL_INTERVAL_MS = 5000;
+    const tbody = document.getElementById("broker-table-body");
+    const totalBrokersEl = document.getElementById("total-brokers");
+    const activeBrokersEl = document.getElementById("active-brokers");
+    const inactiveBrokersEl = document.getElementById("inactive-brokers");
+    const totalConnectionsEl = document.getElementById("total-connections");
+    const lastUpdatedEl = document.getElementById("last-updated");
+
+    function updateSummary(brokers) {
+        const active = brokers.filter((b) => b.is_active).length;
+        const inactive = brokers.length - active;
+        const totalConnections = brokers.reduce((acc, b) => acc + b.connected_publisher, 0);
+
+        totalBrokersEl.textContent = String(brokers.length);
+        activeBrokersEl.textContent = String(active);
+        inactiveBrokersEl.textContent = String(inactive);
+        totalConnectionsEl.textContent = String(totalConnections);
+        lastUpdatedEl.textContent = `Updated ${new Date().toLocaleTimeString()}`;
+    }
+
+    function renderRows(brokers) {
+        updateSummary(brokers);
+        if (!brokers.length) {
+            tbody.innerHTML = '<tr><td colspan="5">No brokers found.</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = brokers.map((broker) => `
+            <tr data-broker-id="${broker.id}">
+                <td>
+                    <span class="badge ${broker.is_active ? "badge-up" : "badge-down"}">
+                        ${broker.is_active ? "UP" : "DOWN"}
+                    </span>
+                </td>
+                <td class="host-cell">
+                    <strong>${broker.host}</strong>
+                    <span>Broker #${broker.id}</span>
+                </td>
+                <td>${broker.port}</td>
+                <td>${broker.connected_publisher}</td>
+                <td>
+                    <label class="switch">
+                        <input type="checkbox" class="active-toggle" ${broker.is_active ? "checked" : ""}/>
+                        <span class="slider"></span>
+                    </label>
+                    <span class="switch-text">${broker.is_active ? "Enabled" : "Disabled"}</span>
+                </td>
+            </tr>
+        `).join("");
+    }
+
+    let isLoading = false;
+
+    async function loadBrokers() {
+        if (isLoading) return;
+        isLoading = true;
+        try {
+            const response = await fetch("/api/mqtt/status");
+            if (!response.ok) throw new Error("failed");
+            const brokers = await response.json();
+            renderRows(brokers);
+        } catch (err) {
+            tbody.innerHTML = '<tr><td colspan="5">Failed to load broker list.</td></tr>';
+        } finally {
+            isLoading = false;
+        }
+    }
+
+    tbody.addEventListener("change", async (event) => {
+        const target = event.target;
+        if (!target.classList.contains("active-toggle")) return;
+
+        const row = target.closest("tr");
+        const brokerId = Number(row.dataset.brokerId);
+        const isActive = target.checked;
+
+        try {
+            const response = await fetch("/api/mqtt/active", {
+                method: "PATCH",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({id: brokerId, is_active: isActive}),
+            });
+            if (!response.ok) throw new Error("toggle failed");
+            await loadBrokers();
+        } catch (err) {
+            target.checked = !isActive;
+            alert("Failed to update broker status.");
+        }
+    });
+
+    loadBrokers();
+    setInterval(loadBrokers, POLL_INTERVAL_MS);
+</script>
+</body>
+</html>

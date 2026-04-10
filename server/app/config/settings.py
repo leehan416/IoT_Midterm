@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     redis_port: int = 6379
     mqtt_host: str = "mosquitto"
     mqtt_port: int = 1883
+    mqtt_brokers: str = ""
+    mqtt_broker_count: int = 1
+    mqtt_broker_name_prefix: str = "mosquitto"
     mqtt_topic_prefix: str = "iot"
 
 settings = Settings()

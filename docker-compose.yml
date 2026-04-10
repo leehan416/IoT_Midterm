@@ -8,11 +8,21 @@ services:
       REDIS_PORT: 6379
       MQTT_HOST: mosquitto
       MQTT_PORT: 1883
+      MQTT_BROKER_COUNT: 5
+      MQTT_BROKER_NAME_PREFIX: mosquitto
       MQTT_TOPIC_PREFIX: iot
     depends_on:
       redis:
         condition: service_healthy
-      mosquitto:
+      mosquitto-1:
+        condition: service_healthy
+      mosquitto-2:
+        condition: service_healthy
+      mosquitto-3:
+        condition: service_healthy
+      mosquitto-4:
+        condition: service_healthy
+      mosquitto-5:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health')"]
@@ -30,11 +40,21 @@ services:
       REDIS_PORT: 6379
       MQTT_HOST: mosquitto
       MQTT_PORT: 1883
+      MQTT_BROKER_COUNT: 5
+      MQTT_BROKER_NAME_PREFIX: mosquitto
       MQTT_TOPIC_PREFIX: iot
     depends_on:
       redis:
         condition: service_healthy
-      mosquitto:
+      mosquitto-1:
+        condition: service_healthy
+      mosquitto-2:
+        condition: service_healthy
+      mosquitto-3:
+        condition: service_healthy
+      mosquitto-4:
+        condition: service_healthy
+      mosquitto-5:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health')"]
@@ -81,15 +101,79 @@ services:
       retries: 5
       start_period: 5s
 
-  mosquitto:
+  mosquitto-1:
     image: eclipse-mosquitto:2
-    container_name: mosquitto
+    container_name: mosquitto-1
     ports:
       - "1883:1883"
     volumes:
       - ./data/mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf
-      - ./data/mosquitto/data:/mosquitto/data
-      - ./data/mosquitto/log:/mosquitto/log
+      - ./data/mosquitto-1/data:/mosquitto/data
+      - ./data/mosquitto-1/log:/mosquitto/log
+    healthcheck:
+      test: ["CMD", "mosquitto_pub", "-h", "127.0.0.1", "-p", "1883", "-t", "healthcheck", "-m", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  mosquitto-2:
+    image: eclipse-mosquitto:2
+    container_name: mosquitto-2
+    expose:
+      - "1883"
+    volumes:
+      - ./data/mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - ./data/mosquitto-2/data:/mosquitto/data
+      - ./data/mosquitto-2/log:/mosquitto/log
+    healthcheck:
+      test: ["CMD", "mosquitto_pub", "-h", "127.0.0.1", "-p", "1883", "-t", "healthcheck", "-m", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  mosquitto-3:
+    image: eclipse-mosquitto:2
+    container_name: mosquitto-3
+    expose:
+      - "1883"
+    volumes:
+      - ./data/mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - ./data/mosquitto-3/data:/mosquitto/data
+      - ./data/mosquitto-3/log:/mosquitto/log
+    healthcheck:
+      test: ["CMD", "mosquitto_pub", "-h", "127.0.0.1", "-p", "1883", "-t", "healthcheck", "-m", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  mosquitto-4:
+    image: eclipse-mosquitto:2
+    container_name: mosquitto-4
+    expose:
+      - "1883"
+    volumes:
+      - ./data/mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - ./data/mosquitto-4/data:/mosquitto/data
+      - ./data/mosquitto-4/log:/mosquitto/log
+    healthcheck:
+      test: ["CMD", "mosquitto_pub", "-h", "127.0.0.1", "-p", "1883", "-t", "healthcheck", "-m", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  mosquitto-5:
+    image: eclipse-mosquitto:2
+    container_name: mosquitto-5
+    expose:
+      - "1883"
+    volumes:
+      - ./data/mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - ./data/mosquitto-5/data:/mosquitto/data
+      - ./data/mosquitto-5/log:/mosquitto/log
     healthcheck:
       test: ["CMD", "mosquitto_pub", "-h", "127.0.0.1", "-p", "1883", "-t", "healthcheck", "-m", "ping"]
       interval: 10s

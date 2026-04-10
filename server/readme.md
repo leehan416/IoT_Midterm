@@ -30,3 +30,4 @@ server/
 - `config/` contains Redis, MQTT, and settings loaders.
 - `schemas/` contains request/response data schemas.
 - `models/` contains domain/base model definitions.
+- `repository/` contains data access layer code.

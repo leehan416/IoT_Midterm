@@ -1,8 +1,11 @@
 :root {
-    --bg: #f6f8fb;
-    --text: #1f2937;
+    --bg: #eef2f8;
+    --text: #1f2737;
     --card: #ffffff;
-    --line: #dbe3ef;
+    --line: #e3e8f1;
+    --subtle: #6f7788;
+    --green: #5bbf6b;
+    --green-soft: #dcf3e1;
 }
 
 * {
@@ -11,24 +14,229 @@
 
 body {
     margin: 0;
-    font-family: "Noto Sans KR", sans-serif;
-    background: linear-gradient(145deg, #f2f6ff, #eefaf6);
+    font-family: "Pretendard", "Noto Sans KR", sans-serif;
+    background: var(--bg);
     color: var(--text);
 }
 
 .container {
-    max-width: 760px;
-    margin: 80px auto;
+    max-width: 1160px;
+    margin: 30px auto;
+    padding: 0 16px;
+}
+
+.hero {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    gap: 16px;
+}
+
+.page-title {
+    margin: 0;
+    font-size: 34px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+}
+
+.page-subtitle {
+    margin: 6px 0 0;
+    color: var(--subtle);
+    font-size: 14px;
+}
+
+.hero-meta {
+    font-size: 13px;
+    color: var(--subtle);
+    background: #f7f9fd;
+    border: 1px solid var(--line);
+    padding: 8px 12px;
+    border-radius: 10px;
+}
+
+.summary-grid {
+    margin: 14px 0 16px;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.summary-card {
     background: var(--card);
     border: 1px solid var(--line);
-    border-radius: 16px;
-    padding: 28px;
+    border-radius: 12px;
+    padding: 12px 14px;
 }
 
-h1 {
-    margin: 0 0 12px;
+.summary-card span {
+    color: var(--subtle);
+    font-size: 12px;
 }
 
-p {
-    margin: 8px 0;
+.summary-card strong {
+    display: block;
+    margin-top: 4px;
+    font-size: 26px;
+}
+
+.table-card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: 0 10px 30px rgba(16, 32, 64, 0.06);
+}
+
+.status-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.status-table th,
+.status-table td {
+    border-bottom: 1px solid var(--line);
+    padding: 14px 16px;
+    text-align: left;
+    font-size: 15px;
+    white-space: nowrap;
+}
+
+.status-table th {
+    font-size: 14px;
+    font-weight: 600;
+    color: #8a91a0;
+    background: #fbfcff;
+}
+
+.status-table tbody tr:hover {
+    background: #f9fbff;
+}
+
+.host-cell strong {
+    display: block;
+    font-size: 22px;
+    font-weight: 700;
+    color: #242c3e;
+}
+
+.host-cell span {
+    display: block;
+    margin-top: 4px;
+    font-size: 14px;
+    color: #8a91a0;
+}
+
+.badge {
+    display: inline-block;
+    padding: 6px 12px;
+    border-radius: 999px;
+    font-size: 14px;
+    font-weight: 700;
+}
+
+.badge-up {
+    background: var(--green-soft);
+    color: #2a8f4a;
+}
+
+.badge-down {
+    background: #fdebec;
+    color: #bb2436;
+}
+
+.switch {
+    position: relative;
+    display: inline-block;
+    width: 68px;
+    height: 38px;
+    vertical-align: middle;
+}
+
+.switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.slider {
+    position: absolute;
+    inset: 0;
+    background: #d7dce5;
+    border-radius: 999px;
+    transition: 0.2s;
+}
+
+.slider::before {
+    content: "";
+    position: absolute;
+    height: 30px;
+    width: 30px;
+    left: 4px;
+    top: 4px;
+    background: #fff;
+    border-radius: 50%;
+    transition: 0.2s;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+}
+
+.switch input:checked + .slider {
+    background: var(--green);
+}
+
+.switch input:checked + .slider::before {
+    transform: translateX(30px);
+}
+
+.switch-text {
+    display: inline-block;
+    margin-left: 8px;
+    font-size: 14px;
+    font-weight: 700;
+    color: #29456f;
+}
+
+@media (max-width: 768px) {
+    .container {
+        margin: 12px auto;
+    }
+
+    .hero {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .hero-meta {
+        font-size: 12px;
+    }
+
+    .page-title {
+        font-size: 26px;
+    }
+
+    .summary-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .status-table th,
+    .status-table td {
+        padding: 10px;
+        font-size: 13px;
+    }
+
+    .status-table th {
+        font-size: 13px;
+    }
+
+    .host-cell strong {
+        font-size: 16px;
+    }
+
+    .host-cell span {
+        font-size: 12px;
+    }
+
+    .badge {
+        padding: 6px 10px;
+        font-size: 14px;
+    }
 }
