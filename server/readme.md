@@ -9,23 +9,14 @@ server/
 ├── Dockerfile
 ├── app/
 │   ├── config/
-│   │   ├── mqtt.py
-│   │   ├── redis.py
-│   │   └── settings.py
 │   ├── main.py
+│   ├── models/
+│   ├── repository/
 │   ├── routes/
-│   │   ├── api_routes.py
-│   │   ├── comon_routes.py
-│   │   └── mqtt_routes.py
+│   ├── schemas/
 │   ├── services/
-│   │   ├── __init__.py
-│   │   ├── comon_service.py
-│   │   └── mqtt_service.py
 │   ├── static/
-│   │   └── css/
-│   │       └── app.css
 │   └── templates/
-│       └── index.html
 ├── pyproject.toml
 ├── readme.md
 └── uv.lock
@@ -37,3 +28,5 @@ server/
 - `routes/` contains page and API endpoints.
 - `services/` contains business logic.
 - `config/` contains Redis, MQTT, and settings loaders.
+- `schemas/` contains request/response data schemas.
+- `models/` contains domain/base model definitions.

@@ -1,12 +1,6 @@
-from fastapi import APIRouter, HTTPException
-from redis.exceptions import RedisError
+from fastapi import APIRouter
 
-from app.services.comon_service import (
-    check_health,
-    get_redis_db_value,
-    publish_mqtt_message,
-)
-
+from app.services.comon_service import check_health
 
 router = APIRouter(prefix="/api", tags=["api"])
 
@@ -14,4 +8,3 @@ router = APIRouter(prefix="/api", tags=["api"])
 @router.get("/health")
 async def healthcheck() -> dict[str, str]:
     return await check_health()
-
