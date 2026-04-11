@@ -10,3 +10,11 @@ def get_redis_client(db: int) -> Redis | None:
         db=db,
         decode_responses=True,
     )
+
+def get_redis_binary_client() -> Redis:
+    return Redis(
+        host=settings.redis_host,
+        port=settings.redis_port,
+        db=0,
+        decode_responses=False,
+    )
