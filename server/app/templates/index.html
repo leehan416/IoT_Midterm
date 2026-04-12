@@ -37,22 +37,47 @@
 <body>
 <main class="container">
     <h1>IoT Video Dashboard</h1>
-    <p>실시간 카메라 스트리밍 (MQTT MJPEG)</p>
+    <p>실시간 카메라 스트리밍 (MQTT + WebSocket)</p>
     
     <div class="video-grid">
         <div class="video-card">
             <h3>Camera 1</h3>
-            <img src="/api/video/stream/cam1" alt="Cam1 Stream">
+            <img id="camera-1-image" alt="Camera 1 Stream">
         </div>
         <div class="video-card">
             <h3>Camera 2</h3>
-            <img src="/api/video/stream/cam2" alt="Cam2 Stream">
+            <img id="camera-2-image" alt="Camera 2 Stream">
         </div>
         <div class="video-card">
             <h3>Camera 3</h3>
-            <img src="/api/video/stream/cam3" alt="Cam3 Stream">
+            <img id="camera-3-image" alt="Camera 3 Stream">
         </div>
     </div>
 </main>
+<script>
+    const cameras = ["camera-1", "camera-2", "camera-3"];
+
+    function connectCamera(cameraId) {
+        const img = document.getElementById(`${cameraId}-image`);
+        const protocol = location.protocol === "https:" ? "wss" : "ws";
+        const ws = new WebSocket(`${protocol}://${location.host}/api/ws/video/${cameraId}`);
+
+        ws.onmessage = (event) => {
+            const payload = JSON.parse(event.data);
+            if (payload.type !== "frame" || !payload.image) return;
+            img.src = `data:image/jpeg;base64,${payload.image}`;
+        };
+
+        ws.onclose = () => {
+            setTimeout(() => connectCamera(cameraId), 1000);
+        };
+
+        ws.onerror = () => {
+            ws.close();
+        };
+    }
+
+    cameras.forEach((cameraId) => connectCamera(cameraId));
+</script>
 </body>
 </html>

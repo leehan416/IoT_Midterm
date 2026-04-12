@@ -1,4 +1,5 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pathlib import Path
 
 
 class Settings(BaseSettings):
@@ -16,5 +17,12 @@ class Settings(BaseSettings):
     mqtt_broker_count: int = 1
     mqtt_broker_name_prefix: str = "mosquitto"
     mqtt_topic_prefix: str = "iot"
+    mqtt_subscribe_topic: str = "iot/#"
+    mqtt_upload_dir: str = "app/static/uploads"
+    ws_heartbeat_seconds: int = 20
 
 settings = Settings()
+
+
+def ensure_runtime_dirs() -> None:
+    Path(settings.mqtt_upload_dir).mkdir(parents=True, exist_ok=True)

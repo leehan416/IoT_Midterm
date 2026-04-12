@@ -1,15 +1,20 @@
-from fastapi import APIRouter
-from fastapi.responses import StreamingResponse
+import asyncio
+import base64
+import logging
+import time
+
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app.schemas.comon_schemas import *
 from app.schemas.mqtt_schemas import *
 
 import app.services.comon_service as comon_service
 import app.services.mqtt_service as mqtt_service
-import asyncio
-from app.config.redis import get_redis_binary_client
+from app.config.settings import settings
+from app.services.video_stream_hub import video_stream_hub
 
 router = APIRouter(prefix="/api", tags=["api"])
+logger = logging.getLogger(__name__)
 
 
 ########################################################################################################################
@@ -46,28 +51,41 @@ async def set_mqtt_broker_active_api(
 ########################################################################################################################
 # video streaming
 
-async def video_frame_generator(camera_id: str):
-    """Subscribe to Redis Pub/Sub directly to receive C/C++ MQTT frames."""
-    redis_client = get_redis_binary_client()
-    pubsub = redis_client.pubsub()
-    channel_name = f"video:stream:{camera_id}"
-    
-    await pubsub.subscribe(channel_name)
-    try:
-        async for message in pubsub.listen():
-            if message["type"] == "message":
-                frame_data = message["data"]
-                yield (b'--frame\r\n'
-                       b'Content-Type: image/jpeg\r\n\r\n' + frame_data + b'\r\n')
-    finally:
-        await pubsub.unsubscribe(channel_name)
-        await pubsub.close()
+@router.websocket("/ws/video/{camera_id}")
+async def video_ws_api(websocket: WebSocket, camera_id: str):
+    await websocket.accept()
+    queue = await video_stream_hub.subscribe(camera_id)
 
-@router.get("/video/stream/{camera_id}")
-async def video_stream_api(camera_id: str):
-    return StreamingResponse(
-        video_frame_generator(camera_id),
-        media_type="multipart/x-mixed-replace; boundary=frame"
-    )
+    try:
+        latest_frame = video_stream_hub.get_latest_frame(camera_id)
+        if latest_frame is not None:
+            await websocket.send_json(
+                {
+                    "type": "frame",
+                    "camera_id": camera_id,
+                    "timestamp": latest_frame.timestamp,
+                    "image": base64.b64encode(latest_frame.frame_bytes).decode("utf-8"),
+                }
+            )
+
+        while True:
+            try:
+                event = await asyncio.wait_for(queue.get(), timeout=settings.ws_heartbeat_seconds)
+                await websocket.send_json(
+                    {
+                        "type": "frame",
+                        "camera_id": camera_id,
+                        "timestamp": event.timestamp,
+                        "image": base64.b64encode(event.frame_bytes).decode("utf-8"),
+                    }
+                )
+            except asyncio.TimeoutError:
+                await websocket.send_json({"type": "heartbeat", "timestamp": time.time()})
+    except WebSocketDisconnect:
+        logger.info("WebSocket disconnected camera_id=%s", camera_id)
+    except Exception:
+        logger.exception("WebSocket streaming error camera_id=%s", camera_id)
+    finally:
+        await video_stream_hub.unsubscribe(camera_id, queue)
 
 ########################################################################################################################

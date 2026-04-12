@@ -3,6 +3,9 @@ services:
     build:
       context: ./server
       dockerfile: Dockerfile
+    volumes:
+      - ./server/app/static:/app/app/static
+      - ./server/app/templates:/app/app/templates
     environment:
       REDIS_HOST: redis
       REDIS_PORT: 6379
@@ -35,6 +38,9 @@ services:
     build:
       context: ./server
       dockerfile: Dockerfile
+    volumes:
+      - ./server/app/static:/app/app/static
+      - ./server/app/templates:/app/app/templates
     environment:
       REDIS_HOST: redis
       REDIS_PORT: 6379
@@ -88,6 +94,8 @@ services:
         condition: service_healthy
 
   redis:
+    # TODO: broker status/state repository가 Redis에 의존하므로 임시 유지.
+    #       영상 스트리밍 경로는 Redis Pub/Sub 의존 제거 완료.
     image: redis:7-alpine
     container_name: db-redis
     expose:
@@ -188,14 +196,3 @@ services:
       timeout: 3s
       retries: 5
       start_period: 5s
-
-  c-subscriber:
-    build:
-      context: ./server/c_subscriber
-      dockerfile: Dockerfile
-    container_name: c_subscriber
-    depends_on:
-      redis:
-        condition: service_healthy
-      mosquitto-1:
-        condition: service_healthy
