@@ -94,8 +94,6 @@ services:
         condition: service_healthy
 
   redis:
-    # TODO: broker status/state repository가 Redis에 의존하므로 임시 유지.
-    #       영상 스트리밍 경로는 Redis Pub/Sub 의존 제거 완료.
     image: redis:7-alpine
     container_name: db-redis
     expose:
