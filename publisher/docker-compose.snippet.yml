@@ -1,20 +1,15 @@
-# ──────────────────────────────────────────────────────────────────────────────
-# 기존 docker-compose.yml 의 services: 블록 안에 아래 내용을 추가하세요.
-# publisher 를 여러 대 띄우고 싶으면 publisher-2, publisher-3 … 으로 복사하면 됩니다.
-# ──────────────────────────────────────────────────────────────────────────────
-
   publisher-1:
     build:
       context: ./publisher
       dockerfile: Dockerfile
     environment:
-      SERVER_URL: http://nginx        # Docker 내부에서 nginx 서비스로 직접 연결
-      PUBLISHER_ID: camera-1          # Publisher 고유 이름 (각 컨테이너마다 다르게)
-      TOPIC_PREFIX: iot               # 서버의 MQTT_TOPIC_PREFIX 와 동일하게
-      PUBLISH_INTERVAL: "1.0"         # 발행 주기 (초)
+      SERVER_URL: http://nginx      
+      PUBLISHER_ID: camera-1        
+      TOPIC_PREFIX: iot            
+      PUBLISH_INTERVAL: "1.0"     
     depends_on:
       nginx:
-        condition: service_healthy    # nginx(로드밸런서)가 뜬 다음에 시작
+        condition: service_healthy   
     restart: on-failure
 
   publisher-2:
