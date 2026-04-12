@@ -18,7 +18,7 @@ log = logging.getLogger(__name__)
 
 SERVER_URL = os.getenv("SERVER_URL", "http://localhost:80")
 PUBLISHER_ID = os.getenv("PUBLISHER_ID", "camera-1")
-TOPIC_PREFIX = os.getenv("TOPIC_PREFIX", "iot")
+TOPIC_PREFIX = os.getenv("TOPIC_PREFIX", "video/stream")
 PUBLISH_INTERVAL = float(os.getenv("PUBLISH_INTERVAL", "1.0"))
 MQTT_HOST_OVERRIDE = os.getenv("MQTT_HOST_OVERRIDE", "")
 
