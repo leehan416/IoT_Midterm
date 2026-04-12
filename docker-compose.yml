@@ -120,8 +120,10 @@ services:
   mosquitto-2:
     image: eclipse-mosquitto:2
     container_name: mosquitto-2
-    expose:
-      - "1883"
+    # expose:
+    #   - "1883"
+    ports:
+      - "1884:1883"
     volumes:
       - ./data/mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf
       - ./data/mosquitto-2/data:/mosquitto/data
@@ -136,8 +138,10 @@ services:
   mosquitto-3:
     image: eclipse-mosquitto:2
     container_name: mosquitto-3
-    expose:
-      - "1883"
+    # expose:
+    #   - "1883"
+    ports:
+    - "1885:1883"
     volumes:
       - ./data/mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf
       - ./data/mosquitto-3/data:/mosquitto/data
@@ -152,8 +156,10 @@ services:
   mosquitto-4:
     image: eclipse-mosquitto:2
     container_name: mosquitto-4
-    expose:
-      - "1883"
+    # expose:
+    #   - "1883"
+    ports:
+    - "1886:1883"
     volumes:
       - ./data/mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf
       - ./data/mosquitto-4/data:/mosquitto/data
@@ -168,8 +174,10 @@ services:
   mosquitto-5:
     image: eclipse-mosquitto:2
     container_name: mosquitto-5
-    expose:
-      - "1883"
+    # expose:
+    #   - "1883"
+    ports:
+    - "1887:1883"
     volumes:
       - ./data/mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf
       - ./data/mosquitto-5/data:/mosquitto/data
