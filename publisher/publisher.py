@@ -16,17 +16,17 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-SERVER_URL       = os.getenv("SERVER_URL", "http://localhost:80")
-PUBLISHER_ID     = os.getenv("PUBLISHER_ID", "camera-1")
-TOPIC_PREFIX     = os.getenv("TOPIC_PREFIX", "iot")
+SERVER_URL = os.getenv("SERVER_URL", "http://localhost:80")
+PUBLISHER_ID = os.getenv("PUBLISHER_ID", "camera-1")
+TOPIC_PREFIX = os.getenv("TOPIC_PREFIX", "iot")
 PUBLISH_INTERVAL = float(os.getenv("PUBLISH_INTERVAL", "1.0"))
 MQTT_HOST_OVERRIDE = os.getenv("MQTT_HOST_OVERRIDE", "")
 
 TOPIC = f"{TOPIC_PREFIX}/{PUBLISHER_ID}"
 
-local_queue:    deque[str] = deque()  # 브로커 다운 중 보존할 페이로드
-is_connected    = threading.Event()
-is_lock         = threading.Lock()
+local_queue: deque[str] = deque()  # 브로커 다운 중 보존할 페이로드
+is_connected = threading.Event()
+is_lock = threading.Lock()
 current_broker: dict = {}             # 현재 연결된 브로커 정보
 
 
