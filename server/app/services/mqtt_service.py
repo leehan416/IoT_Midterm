@@ -4,6 +4,7 @@ from app.config.settings import settings
 from fastapi import HTTPException
 
 import app.repository.mqtt_repository as mqtt_repository
+from app.scheduler.mqtt_checker import check_broker_status
 
 
 async def get_mqtt_broker_data() -> MQTTDataResponse:
@@ -12,7 +13,19 @@ async def get_mqtt_broker_data() -> MQTTDataResponse:
     if not active_brokers:
         raise HTTPException(status_code=404, detail="No active MQTT broker data found")
     active_brokers.sort(key=lambda broker: broker.connected_publisher, reverse=True)
-    return MQTTDataResponse.model_validate(active_brokers[0])
+    
+    # broker list를 반환하기 전에 status check
+    for broker in active_brokers:
+        is_truly_active = await check_broker_status(broker.host, broker.port, timeout=0.5)
+        if is_truly_active:
+            return MQTTDataResponse.model_validate(broker)
+        else:
+            # 만약에 broker가 죽었다면, db update
+            broker.is_active = False
+            await mqtt_repository.save_mqtt_data(broker)
+            
+    # 모든 broker가 죽었다면 404 error 반환
+    raise HTTPException(status_code=404, detail="No active MQTT broker data found after real-time status check")
 
 
 async def set_mqtt_broker_data(
