@@ -199,3 +199,31 @@ services:
         condition: service_healthy
       mosquitto-1:
         condition: service_healthy
+
+  publisher-1:
+    build:
+      context: ./publisher
+      dockerfile: Dockerfile
+    environment:
+      SERVER_URL: http://nginx      
+      PUBLISHER_ID: camera-1        
+      TOPIC_PREFIX: iot            
+      PUBLISH_INTERVAL: "1.0"     
+    depends_on:
+      nginx:
+        condition: service_healthy   
+    restart: on-failure
+
+  publisher-2:
+    build:
+      context: ./publisher
+      dockerfile: Dockerfile
+    environment:
+      SERVER_URL: http://nginx
+      PUBLISHER_ID: camera-2
+      TOPIC_PREFIX: iot
+      PUBLISH_INTERVAL: "1.0"
+    depends_on:
+      nginx:
+        condition: service_healthy
+    restart: on-failure
