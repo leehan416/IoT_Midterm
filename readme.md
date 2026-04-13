@@ -60,7 +60,7 @@ docker compose up -d --build
 2. Start publisher:
 ```bash
 cd publisher
-python publisher.py
+SERVER_URL=http://[ip]:80 PUBLISHER_ID=camera-1 python publisher.py
 ```
 3. Open [http://localhost/](http://localhost/) and check camera cards update.
 4. In browser devtools, confirm WebSocket frames are received from `/api/ws/video/{camera_id}`.

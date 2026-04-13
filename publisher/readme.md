@@ -8,4 +8,8 @@ SERVER_URL=http://localhost:80 PUBLISHER_ID=camera-1 python publisher.py
 docker compose up --build
 ```
 
+```bash
+source .venv/bin/activate
+```
+
 

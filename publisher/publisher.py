@@ -5,10 +5,10 @@ import time
 import threading
 import requests
 import paho.mqtt.client as mqtt
-import io
 import base64
 from collections import deque
 from urllib.parse import urlparse
+import subprocess
 
 logging.basicConfig(
     level=logging.INFO,
@@ -16,7 +16,7 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-SERVER_URL = os.getenv("SERVER_URL", "http://localhost:80")
+SERVER_URL = os.getenv("SERVER_URL", "http://192.168.0.16:80")
 PUBLISHER_ID = os.getenv("PUBLISHER_ID", "camera-1")
 TOPIC_PREFIX = os.getenv("TOPIC_PREFIX", "iot/video/stream")
 PUBLISH_INTERVAL = float(os.getenv("PUBLISH_INTERVAL", "1.0"))
@@ -29,41 +29,13 @@ is_connected = threading.Event()
 is_lock = threading.Lock()
 current_broker: dict = {}
 
-# =========================
-# 📷 Camera Auto Detection
-# =========================
-CAMERA_MODE = "file"
 
-try:
-    from picamera2 import Picamera2
-    picam2 = Picamera2()
-    picam2.configure(picam2.create_still_configuration(
-        main={"size": (640, 480)}
-    ))
-    picam2.start()
-    CAMERA_MODE = "picamera2"
-    log.info("Using Picamera2")
-except Exception:
-    try:
-        from picamera import PiCamera
-        camera = PiCamera()
-        camera.resolution = (640, 480)
-        time.sleep(2)
-        CAMERA_MODE = "picamera"
-        log.info("Using PiCamera")
-    except Exception:
-        log.warning("No camera available → using test.png")
-        CAMERA_MODE = "file"
+CAMERA_MODE = "rpi"
 
-
-# =========================
-# 🔥 Host Resolver (핵심)
-# =========================
 def resolve_host(broker_host: str) -> str:
     if MQTT_HOST_OVERRIDE:
         return MQTT_HOST_OVERRIDE
 
-    # mosquitto-1 같은 Docker 내부 이름이면
     if broker_host.startswith("mosquitto"):
         parsed = urlparse(SERVER_URL)
         fallback_host = parsed.hostname
@@ -73,9 +45,6 @@ def resolve_host(broker_host: str) -> str:
     return broker_host
 
 
-# =========================
-# MQTT Callbacks
-# =========================
 def on_connect(client, userdata, flags, rc, properties):
     if rc == 0:
         log.info(f"Connected to broker: {current_broker.get('host')} (topic: {TOPIC})")
@@ -97,9 +66,6 @@ def on_publish(client, userdata, mid, rc, properties):
     log.debug(f"PUBACK received (mid={mid})")
 
 
-# =========================
-# Server Communication
-# =========================
 def receive_broker_info() -> dict:
     for attempt in range(1, 6):
         try:
@@ -131,15 +97,13 @@ def register_to_server(broker_id: int) -> None:
     raise RuntimeError("Unable to register to server.")
 
 
-# =========================
-# Failover
-# =========================
 def failover(client: mqtt.Client):
     global current_broker
 
     for attempt in range(1, 11):
         try:
             broker = receive_broker_info()
+            register_to_server(broker["id"])
             host = resolve_host(broker["host"])
 
             client.disconnect()
@@ -157,9 +121,6 @@ def failover(client: mqtt.Client):
     log.error("Failover exhausted. Messages preserved in local_queue.")
 
 
-# =========================
-# Queue Flush
-# =========================
 def flush_local_queue(client: mqtt.Client):
     with is_lock:
         count = len(local_queue)
@@ -179,47 +140,57 @@ def flush_local_queue(client: mqtt.Client):
             log.error("Flush failed, stopping flush.")
             break
 
-
-# =========================
-# Payload Builder
-# =========================
 def build_payload() -> str:
-    buf = io.BytesIO()
+    IMAGE_PATH = "capture.jpg"
 
-    if CAMERA_MODE == "picamera2":
-        picam2.capture_file(buf, format="jpeg")
+    try:
+        if CAMERA_MODE == "rpi":
+            cmd = [ "rpicam-jpeg", "-o", IMAGE_PATH, "--width", "334", "--height", "250", "-t", "1", "--nopreview"
+            ]
 
-    elif CAMERA_MODE == "picamera":
-        camera.capture(buf, format="jpeg")
+            result = subprocess.run(cmd, capture_output=True, text=True)
 
-    else:
+            if result.returncode != 0:
+                log.error(f"Camera capture failed: {result.stderr}")
+                raise RuntimeError("Camera capture failed")
+
+            log.info("success capture (rpi camera)")
+
+            with open(IMAGE_PATH, "rb") as f:
+                img_bytes = f.read()
+        else:
+            with open("test.png", "rb") as f:
+                img_bytes = f.read()
+            log.info("send a png")
+
+    except Exception as e:
+        log.warning(f"Camera error → fallback to test.png ({e})")
         with open("test.png", "rb") as f:
-            buf.write(f.read())
+            img_bytes = f.read()
 
-    img_b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+    img_b64 = base64.b64encode(img_bytes).decode("utf-8")
 
     data = {
         "publisher_id": PUBLISHER_ID,
-        "topic":        TOPIC,
-        "timestamp":    time.time(),
+        "topic": TOPIC,
+        "timestamp": time.time(),
         "data": {
-            "image":  img_b64,
-            "width":  640,
-            "height": 480,
+            "image": img_b64,
+            "width": 333,
+            "height": 250,
             "format": "jpeg",
         },
     }
+
     return json.dumps(data)
 
 
-# =========================
-# Main
-# =========================
 def main():
     global current_broker
 
     broker = receive_broker_info()
     register_to_server(broker["id"])
+
     current_broker = broker
 
     client = mqtt.Client(
@@ -228,9 +199,9 @@ def main():
         protocol=mqtt.MQTTv311,
         clean_session=False,
     )
-    client.on_connect    = on_connect
+    client.on_connect = on_connect
     client.on_disconnect = on_disconnect
-    client.on_publish    = on_publish
+    client.on_publish = on_publish
     client.reconnect_delay_set(min_delay=1, max_delay=30)
 
     mqtt_host = resolve_host(broker["host"])
@@ -263,11 +234,6 @@ def main():
     except KeyboardInterrupt:
         log.info("Shutting down...")
     finally:
-        if CAMERA_MODE == "picamera2":
-            picam2.stop()
-        elif CAMERA_MODE == "picamera":
-            camera.close()
-
         client.loop_stop()
         client.disconnect()
         log.info("Disconnected.")
