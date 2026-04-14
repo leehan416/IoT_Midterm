@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import socket
 import time
 import threading
 import requests
@@ -21,6 +22,7 @@ PUBLISHER_ID = os.getenv("PUBLISHER_ID", "camera-1")
 TOPIC_PREFIX = os.getenv("TOPIC_PREFIX", "iot/video/stream")
 PUBLISH_INTERVAL = float(os.getenv("PUBLISH_INTERVAL", "1.0"))
 MQTT_HOST_OVERRIDE = os.getenv("MQTT_HOST_OVERRIDE", "")
+PUBLISHER_HOST_OVERRIDE = os.getenv("PUBLISHER_HOST", "")
 
 TOPIC = f"{TOPIC_PREFIX}/{PUBLISHER_ID}"
 
@@ -80,12 +82,26 @@ def receive_broker_info() -> dict:
     raise RuntimeError("Unable to retrieve broker info from server.")
 
 
+def resolve_publisher_host() -> str:
+    if PUBLISHER_HOST_OVERRIDE.strip():
+        return PUBLISHER_HOST_OVERRIDE.strip()
+    try:
+        return socket.gethostbyname(socket.gethostname())
+    except Exception:
+        return "127.0.0.1"
+
+
 def register_to_server(broker_id: int) -> None:
+    publisher_host = resolve_publisher_host()
     for attempt in range(1, 6):
         try:
             res = requests.post(
                 f"{SERVER_URL}/api/mqtt",
-                json={"id": broker_id, "topic": TOPIC},
+                json={
+                    "broker_id": broker_id,
+                    "publisher_host": publisher_host,
+                    "topic": TOPIC,
+                },
                 timeout=5,
             )
             res.raise_for_status()
