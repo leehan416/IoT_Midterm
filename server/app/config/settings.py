@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     mqtt_broker_count: int = 1
     mqtt_broker_name_prefix: str = "mosquitto"
     mqtt_topic_prefix: str = "iot"
+    mqtt_default_host: str = ""
+    mqtt_advertised_host: str = "localhost"
+    mqtt_advertised_port_start: int = 1883
     mqtt_subscribe_topic: str = "iot/#"
     mqtt_upload_dir: str = "app/static/uploads"
     ws_heartbeat_seconds: int = 20

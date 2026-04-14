@@ -1,20 +1,13 @@
-import asyncio
-import base64
-import logging
-import time
-
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Request, WebSocket
 
 from app.schemas.comon_schemas import *
 from app.schemas.mqtt_schemas import *
 
 import app.services.comon_service as comon_service
 import app.services.mqtt_service as mqtt_service
-from app.config.settings import settings
-from app.services.video_stream_hub import video_stream_hub
+from app.services.video_stream_service import stream_video_websocket
 
 router = APIRouter(prefix="/api", tags=["api"])
-logger = logging.getLogger(__name__)
 
 
 ########################################################################################################################
@@ -25,11 +18,24 @@ async def healthcheck_api() -> HealthCheckResponse:
 
 
 ########################################################################################################################
+# publisher
+
+@router.get("/publisher")
+@router.get("/publisher/")
+@router.get("/publisher/all")
+async def get_all_publisher_data_api() -> list[PublisherResponse]:
+    return await mqtt_service.get_all_publishers()
+
+
+########################################################################################################################
 # mqtt
 
 @router.get("/mqtt")
-async def get_mqtt_broker_data_api() -> MQTTDataResponse:
-    return await mqtt_service.get_mqtt_broker_data()
+async def get_mqtt_broker_data_api(request: Request) -> MQTTDataResponse:
+    request_host = request.headers.get("x-forwarded-host") or request.url.hostname
+    if request_host and ":" in request_host:
+        request_host = request_host.split(":", 1)[0]
+    return await mqtt_service.get_mqtt_broker_data(request_host=request_host)
 
 
 @router.post("/mqtt")
@@ -39,8 +45,11 @@ async def set_mqtt_broker_data_api(
 
 
 @router.get("/mqtt/status")
-async def get_mqtt_broker_status_api() -> list[MQTTStatusResponse]:
-    return await mqtt_service.get_mqtt_status()
+async def get_mqtt_broker_status_api(request: Request) -> list[MQTTStatusResponse]:
+    request_host = request.headers.get("x-forwarded-host") or request.url.hostname
+    if request_host and ":" in request_host:
+        request_host = request_host.split(":", 1)[0]
+    return await mqtt_service.get_mqtt_status(request_host=request_host)
 
 
 @router.patch("/mqtt/active")
@@ -51,41 +60,8 @@ async def set_mqtt_broker_active_api(
 ########################################################################################################################
 # video streaming
 
-@router.websocket("/ws/video/{camera_id}")
-async def video_ws_api(websocket: WebSocket, camera_id: str):
-    await websocket.accept()
-    queue = await video_stream_hub.subscribe(camera_id)
-
-    try:
-        latest_frame = video_stream_hub.get_latest_frame(camera_id)
-        if latest_frame is not None:
-            await websocket.send_json(
-                {
-                    "type": "frame",
-                    "camera_id": camera_id,
-                    "timestamp": latest_frame.timestamp,
-                    "image": base64.b64encode(latest_frame.frame_bytes).decode("utf-8"),
-                }
-            )
-
-        while True:
-            try:
-                event = await asyncio.wait_for(queue.get(), timeout=settings.ws_heartbeat_seconds)
-                await websocket.send_json(
-                    {
-                        "type": "frame",
-                        "camera_id": camera_id,
-                        "timestamp": event.timestamp,
-                        "image": base64.b64encode(event.frame_bytes).decode("utf-8"),
-                    }
-                )
-            except asyncio.TimeoutError:
-                await websocket.send_json({"type": "heartbeat", "timestamp": time.time()})
-    except WebSocketDisconnect:
-        logger.info("WebSocket disconnected camera_id=%s", camera_id)
-    except Exception:
-        logger.exception("WebSocket streaming error camera_id=%s", camera_id)
-    finally:
-        await video_stream_hub.unsubscribe(camera_id, queue)
+@router.websocket("/ws/video/{publisher_id}")
+async def video_ws_api(websocket: WebSocket, publisher_id: str):
+    await stream_video_websocket(websocket, publisher_id)
 
 ########################################################################################################################

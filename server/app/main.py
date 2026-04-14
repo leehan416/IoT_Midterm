@@ -20,15 +20,20 @@ async def lifespan(_app: FastAPI):
     video_stream_hub.set_event_loop(asyncio.get_running_loop())
 
     await mqtt_service.register_mqtt_brokers()
+    await mqtt_service.restore_publisher_subscriptions()
     checker_task = asyncio.create_task(mqtt_status_checker())
+    publisher_sync_task = asyncio.create_task(mqtt_service.publisher_subscription_sync_worker())
     mqtt_subscriber_service.start()
     try:
         yield
     finally:
         mqtt_subscriber_service.stop()
         checker_task.cancel()
+        publisher_sync_task.cancel()
         with suppress(asyncio.CancelledError):
             await checker_task
+        with suppress(asyncio.CancelledError):
+            await publisher_sync_task
 
 
 app = FastAPI(title="iot-server", lifespan=lifespan)

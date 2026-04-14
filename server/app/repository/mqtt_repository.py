@@ -11,6 +11,8 @@ def _build_broker(data: dict[str, str]) -> MQTTBroker:
         connected_publisher=int(data.get("connected_publisher", 0)),
         host=data.get("host", "localhost"),
         port=int(data.get("port", 1883)),
+        check_host=data.get("check_host", data.get("host", "localhost")),
+        check_port=int(data.get("check_port", data.get("port", 1883))),
         is_active=bool(int(data.get("is_active", 1))),
     )
 
@@ -35,6 +37,8 @@ async def save_mqtt_data(mqtt_broker: MQTTBroker) -> MQTTBroker:
             "connected_publisher": mqtt_broker.connected_publisher,
             "host": mqtt_broker.host,
             "port": mqtt_broker.port,
+            "check_host": mqtt_broker.check_host,
+            "check_port": mqtt_broker.check_port,
             "is_active": int(mqtt_broker.is_active),
             "created_at": mqtt_broker.created_at.isoformat(),
             "updated_at": mqtt_broker.updated_at.isoformat(),

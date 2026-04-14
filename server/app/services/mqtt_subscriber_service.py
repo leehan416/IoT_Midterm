@@ -17,54 +17,76 @@ logger = logging.getLogger(__name__)
 
 class MQTTSubscriberService:
     def __init__(self) -> None:
-        self._client: mqtt.Client | None = None
+        self._clients: list[mqtt.Client] = []
+        self._extra_topics: set[str] = set()
+        self._topic_to_publisher_id: dict[str, str] = {}
 
     def start(self) -> None:
-        if self._client is not None:
+        if self._clients:
             return
 
-        client_id = f"iot-server-video-subscriber-{socket.gethostname()}-{uuid.uuid4().hex[:8]}"
-        client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=client_id)
-        client.on_connect = self._on_connect
-        client.on_disconnect = self._on_disconnect
-        client.on_message = self._on_message
-        client.reconnect_delay_set(min_delay=1, max_delay=30)
-        connected = False
+        started = 0
         for host, port in self._broker_candidates():
+            client_id = f"iot-server-video-subscriber-{socket.gethostname()}-{uuid.uuid4().hex[:8]}"
+            client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=client_id)
+            client.on_connect = self._on_connect
+            client.on_disconnect = self._on_disconnect
+            client.on_message = self._on_message
+            client.reconnect_delay_set(min_delay=1, max_delay=30)
             try:
                 client.connect(host, port, keepalive=60)
-                connected = True
+                client.loop_start()
+                self._clients.append(client)
+                started += 1
                 logger.info(
-                    "MQTT subscriber initial connect target host=%s port=%s client_id=%s",
+                    "MQTT subscriber started host=%s port=%s client_id=%s",
                     host,
                     port,
                     client_id,
                 )
-                break
             except Exception:
                 logger.exception("MQTT subscriber connect failed host=%s port=%s", host, port)
-
-        client.loop_start()
-        self._client = client
-        if not connected:
-            logger.error(
-                "MQTT subscriber could not connect to any broker candidate at startup; "
-                "service stays alive and will rely on manual restart/config fix"
-            )
+        if started == 0:
+            logger.error("MQTT subscriber could not connect to any broker candidate at startup")
 
     def stop(self) -> None:
-        if self._client is None:
+        if not self._clients:
             return
-        self._client.loop_stop()
-        self._client.disconnect()
-        self._client = None
-        logger.info("MQTT subscriber stopped")
+        for client in self._clients:
+            client.loop_stop()
+            client.disconnect()
+        client_count = len(self._clients)
+        self._clients = []
+        logger.info("MQTT subscriber stopped (clients=%s)", client_count)
+
+    def register_publisher_topic(self, publisher_id: int | str, topic: str, qos: int = 1) -> None:
+        normalized = topic.strip()
+        if not normalized:
+            return
+
+        self._topic_to_publisher_id[normalized] = str(publisher_id)
+        self._extra_topics.add(normalized)
+        for client in self._clients:
+            result, _ = client.subscribe(normalized, qos=qos)
+            if result != mqtt.MQTT_ERR_SUCCESS:
+                logger.error("Failed to subscribe topic=%s result=%s", normalized, result)
+            else:
+                logger.info(
+                    "MQTT subscriber subscribed dynamic topic=%s publisher_id=%s",
+                    normalized,
+                    publisher_id,
+                )
+
+    def subscribe_topic(self, topic: str, qos: int = 1) -> None:
+        self.register_publisher_topic("unknown", topic, qos=qos)
 
     def _on_connect(self, client: mqtt.Client, _userdata, _flags, rc, _properties) -> None:
         if rc != 0:
             logger.error("MQTT subscriber connect failed rc=%s", rc)
             return
         client.subscribe(settings.mqtt_subscribe_topic, qos=1)
+        for topic in self._extra_topics:
+            client.subscribe(topic, qos=1)
         logger.info("MQTT subscriber connected and subscribed topic=%s", settings.mqtt_subscribe_topic)
 
     def _on_disconnect(self, _client: mqtt.Client, _userdata, _flags, rc, _properties) -> None:
@@ -81,7 +103,7 @@ class MQTTSubscriberService:
             logger.exception("Failed to parse MQTT payload as JSON topic=%s", msg.topic)
             return
 
-        camera_id = self._extract_camera_id(msg.topic, payload)
+        publisher_id = self._extract_publisher_id(msg.topic, payload)
         image_b64 = payload.get("data", {}).get("image")
         if not isinstance(image_b64, str):
             logger.error("Payload missing data.image base64 topic=%s", msg.topic)
@@ -90,22 +112,24 @@ class MQTTSubscriberService:
         try:
             frame_bytes = base64.b64decode(image_b64, validate=True)
         except Exception:
-            logger.exception("Failed to decode base64 image topic=%s camera_id=%s", msg.topic, camera_id)
+            logger.exception("Failed to decode base64 image topic=%s publisher_id=%s", msg.topic, publisher_id)
             return
 
-        self._save_latest_file(camera_id, frame_bytes)
-        video_stream_hub.publish_frame(camera_id, frame_bytes)
+        self._save_latest_file(publisher_id, frame_bytes)
+        video_stream_hub.publish_frame(publisher_id, frame_bytes)
 
-    @staticmethod
-    def _extract_camera_id(topic: str, payload: dict) -> str:
+    def _extract_publisher_id(self, topic: str, payload: dict) -> str:
+        mapped_publisher_id = self._topic_to_publisher_id.get(topic.strip())
+        if mapped_publisher_id:
+            return mapped_publisher_id
+        publisher_id = payload.get("publisher_id")
+        if isinstance(publisher_id, str) and publisher_id:
+            return publisher_id
         topic_parts = [part for part in topic.split("/") if part]
         if topic_parts:
             topic_camera_id = topic_parts[-1]
             if topic_camera_id not in ("#", "+"):
                 return topic_camera_id
-        publisher_id = payload.get("publisher_id")
-        if isinstance(publisher_id, str) and publisher_id:
-            return publisher_id
         return "unknown"
 
     @staticmethod

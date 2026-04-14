@@ -59,3 +59,5 @@ uv.lock
 
 # Runtime data
 data/
+server/app/static/uploads/
+publisher/test.png

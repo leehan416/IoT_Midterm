@@ -8,7 +8,7 @@
     <style>
         .video-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            grid-template-columns: repeat(3, minmax(0, 1fr));
             gap: 20px;
             margin-top: 20px;
         }
@@ -32,35 +32,36 @@
             display: block;
             background: #444;
         }
+        @media (max-width: 900px) {
+            .video-grid {
+                grid-template-columns: 1fr;
+            }
+        }
     </style>
 </head>
 <body>
 <main class="container">
     <h1>IoT Video Dashboard</h1>
     <p>실시간 카메라 스트리밍 (MQTT + WebSocket)</p>
+    <p id="publisher-count">연결된 퍼블리셔: 0</p>
     
-    <div class="video-grid">
-        <div class="video-card">
-            <h3>Camera 1</h3>
-            <img id="camera-1-image" alt="Camera 1 Stream">
-        </div>
-        <div class="video-card">
-            <h3>Camera 2</h3>
-            <img id="camera-2-image" alt="Camera 2 Stream">
-        </div>
-        <div class="video-card">
-            <h3>Camera 3</h3>
-            <img id="camera-3-image" alt="Camera 3 Stream">
-        </div>
-    </div>
+    <div class="video-grid" id="video-grid"></div>
 </main>
 <script>
-    const cameras = ["camera-1", "camera-2", "camera-3"];
+    const POLL_INTERVAL_MS = 3000;
+    const videoGrid = document.getElementById("video-grid");
+    const publisherCountEl = document.getElementById("publisher-count");
+    const reconnectTimers = new Map();
+    const socketByPublisherId = new Map();
+    const knownPublisherIds = new Set();
 
-    function connectCamera(cameraId) {
-        const img = document.getElementById(`${cameraId}-image`);
+    function connectPublisher(publisherId) {
+        if (socketByPublisherId.has(publisherId)) return;
+        const img = document.getElementById(`publisher-${publisherId}-image`);
+        if (!img) return;
         const protocol = location.protocol === "https:" ? "wss" : "ws";
-        const ws = new WebSocket(`${protocol}://${location.host}/api/ws/video/${cameraId}`);
+        const ws = new WebSocket(`${protocol}://${location.host}/api/ws/video/${publisherId}`);
+        socketByPublisherId.set(publisherId, ws);
 
         ws.onmessage = (event) => {
             const payload = JSON.parse(event.data);
@@ -69,7 +70,11 @@
         };
 
         ws.onclose = () => {
-            setTimeout(() => connectCamera(cameraId), 1000);
+            socketByPublisherId.delete(publisherId);
+            if (reconnectTimers.has(publisherId)) clearTimeout(reconnectTimers.get(publisherId));
+            if (knownPublisherIds.has(publisherId)) {
+                reconnectTimers.set(publisherId, setTimeout(() => connectPublisher(publisherId), 1000));
+            }
         };
 
         ws.onerror = () => {
@@ -77,7 +82,73 @@
         };
     }
 
-    cameras.forEach((cameraId) => connectCamera(cameraId));
+    function createPublisherCard(publisherId) {
+        const card = document.createElement("div");
+        card.className = "video-card";
+        card.id = `publisher-${publisherId}-card`;
+        card.innerHTML = `
+            <h3>publisher-${publisherId}</h3>
+            <img id="publisher-${publisherId}-image" alt="publisher-${publisherId} Stream">
+        `;
+        return card;
+    }
+
+    function removePublisher(publisherId) {
+        knownPublisherIds.delete(publisherId);
+        const timer = reconnectTimers.get(publisherId);
+        if (timer) {
+            clearTimeout(timer);
+            reconnectTimers.delete(publisherId);
+        }
+        const ws = socketByPublisherId.get(publisherId);
+        if (ws) {
+            socketByPublisherId.delete(publisherId);
+            ws.close();
+        }
+        const card = document.getElementById(`publisher-${publisherId}-card`);
+        if (card) card.remove();
+    }
+
+    function renderEmptyStateIfNeeded() {
+        if (knownPublisherIds.size > 0) return;
+        videoGrid.innerHTML = "<p id=\"publisher-empty\">등록된 퍼블리셔가 없습니다.</p>";
+    }
+
+    async function loadPublishersAndConnect() {
+        try {
+            const response = await fetch("/api/publisher/");
+            if (!response.ok) throw new Error("failed");
+            const publishers = await response.json();
+            const activePublishers = publishers
+                .filter((publisher) => publisher && publisher.id !== undefined && publisher.id !== null)
+                .sort((a, b) => Number(a.id) - Number(b.id));
+            const nextIds = new Set(activePublishers.map((publisher) => String(publisher.id)));
+
+            publisherCountEl.textContent = `연결된 퍼블리셔: ${publishers.length}`;
+
+            const emptyEl = document.getElementById("publisher-empty");
+            if (emptyEl) emptyEl.remove();
+
+            activePublishers.forEach((publisher) => {
+                const publisherId = String(publisher.id);
+                if (!knownPublisherIds.has(publisherId)) {
+                    knownPublisherIds.add(publisherId);
+                    videoGrid.appendChild(createPublisherCard(publisherId));
+                    connectPublisher(publisherId);
+                }
+            });
+
+            Array.from(knownPublisherIds).forEach((publisherId) => {
+                if (!nextIds.has(publisherId)) removePublisher(publisherId);
+            });
+            renderEmptyStateIfNeeded();
+        } catch (e) {
+            videoGrid.innerHTML = "<p>퍼블리셔 목록을 불러오지 못했습니다.</p>";
+        }
+    }
+
+    loadPublishersAndConnect();
+    setInterval(loadPublishersAndConnect, POLL_INTERVAL_MS);
 </script>
 </body>
 </html>
