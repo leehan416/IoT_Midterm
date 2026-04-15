@@ -18,7 +18,7 @@ class MQTTDataResponse(BaseModel):
 
 
 class MQTTConnectedDataRequest(BaseModel):
-    broker_id: int = Field(validation_alias="id")
+    broker_id: int
     publisher_host: str = ""
     topic: str
 
@@ -41,3 +41,6 @@ class PublisherResponse(BaseModel):
     broker_id: int
     host: str
     topic: str
+    broker_host: str
+    broker_port: int
+    broker_is_active: bool

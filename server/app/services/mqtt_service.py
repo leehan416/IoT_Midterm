@@ -86,12 +86,17 @@ async def set_mqtt_active(request_data: MQTTActiveRequest) -> MQTTStatusResponse
 
 async def get_all_publishers() -> list[PublisherResponse]:
     publishers = await publisher_repository.get_all_publisher_data()
+    brokers = await mqtt_repository.get_all_mqtt_datas()
+    broker_map = {broker.id: broker for broker in brokers}
     return [
         PublisherResponse(
             id=pub.id,
             broker_id=pub.broker_id,
             host=pub.host,
             topic=pub.topic,
+            broker_host=broker_map[pub.broker_id].host if pub.broker_id in broker_map else "unknown",
+            broker_port=broker_map[pub.broker_id].port if pub.broker_id in broker_map else -1,
+            broker_is_active=broker_map[pub.broker_id].is_active if pub.broker_id in broker_map else False,
         )
         for pub in publishers
     ]

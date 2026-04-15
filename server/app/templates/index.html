@@ -11,6 +11,7 @@
             grid-template-columns: repeat(3, minmax(0, 1fr));
             gap: 20px;
             margin-top: 20px;
+            align-items: start;
         }
         .video-card {
             border: 1px solid #ccc;
@@ -25,6 +26,19 @@
             border-bottom: 1px solid #ccc;
             text-align: center;
         }
+        .video-meta {
+            margin: 0;
+            padding: 8px 10px;
+            border-bottom: 1px solid #ddd;
+            background: #f3f3f3;
+            font-size: 12px;
+            color: #333;
+            line-height: 1.5;
+            word-break: break-all;
+        }
+        .video-meta strong {
+            font-weight: 700;
+        }
         .video-card img {
             width: 100%;
             height: 250px;
@@ -32,7 +46,12 @@
             display: block;
             background: #444;
         }
-        @media (max-width: 900px) {
+        @media (max-width: 1200px) {
+            .video-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+        }
+        @media (max-width: 768px) {
             .video-grid {
                 grid-template-columns: 1fr;
             }
@@ -82,12 +101,19 @@
         };
     }
 
-    function createPublisherCard(publisherId) {
+    function createPublisherCard(publisher) {
+        const publisherId = String(publisher.id);
+        const brokerStatus = publisher.broker_is_active ? "UP" : "DOWN";
         const card = document.createElement("div");
         card.className = "video-card";
         card.id = `publisher-${publisherId}-card`;
         card.innerHTML = `
             <h3>publisher-${publisherId}</h3>
+            <p class="video-meta">
+                <strong>Topic:</strong> ${publisher.topic}<br>
+                <strong>Broker:</strong> #${publisher.broker_id} (${publisher.broker_host}:${publisher.broker_port})<br>
+                <strong>Status:</strong> ${brokerStatus}
+            </p>
             <img id="publisher-${publisherId}-image" alt="publisher-${publisherId} Stream">
         `;
         return card;
@@ -133,7 +159,7 @@
                 const publisherId = String(publisher.id);
                 if (!knownPublisherIds.has(publisherId)) {
                     knownPublisherIds.add(publisherId);
-                    videoGrid.appendChild(createPublisherCard(publisherId));
+                    videoGrid.appendChild(createPublisherCard(publisher));
                     connectPublisher(publisherId);
                 }
             });
