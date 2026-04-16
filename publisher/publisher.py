@@ -112,7 +112,7 @@ def resolve_publisher_host() -> str:
 # register publisher info to server
 def register_to_server(broker_id: int) -> None:
     publisher_host = resolve_publisher_host()
-    
+
     for attempt in range(1, 6):
         try:
             res = requests.post(
@@ -178,91 +178,56 @@ def flush_local_queue(client: mqtt.Client):
             break
 
 # make a data
-# def build_payload() -> str:
-#     IMAGE_PATH = "capture.jpg"
+def build_payload_stream(publish_callback):
+    """
+    rpicam-vid MJPEG 스트림을 파이프로 읽어서
+    JPEG 프레임(SOI~EOI)이 완성될 때마다 publish_callback을 호출
+    """
+    cmd = [
+        "rpicam-vid", "-t", "0", "--inline", "-n",
+        "--width", "640", "--height", "480",
+        "--codec", "mjpeg", "-o", "-"
+    ]
 
-#     try:
-#         if CAMERA_MODE == "rpi":
-#             cmd = [ "rpicam-jpeg", "-o", IMAGE_PATH, "--width", "334", "--height", "250", "-t", "1", "--nopreview"
-#             ]
+    process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    log.info("rpicam-vid stream start")
 
-#             result = subprocess.run(cmd, capture_output=True, text=True)
+    frame_buf = bytearray()
+    CHUNK_SIZE = 4096
 
-#             if result.returncode != 0:
-#                 log.error(f"Camera capture failed: {result.stderr}")
-#                 raise RuntimeError("Camera capture failed")
-
-#             log.info("success capture (rpi camera)")
-
-#             with open(IMAGE_PATH, "rb") as f:
-#                 img_bytes = f.read()
-#         else:
-#             with open("test.png", "rb") as f:
-#                 img_bytes = f.read()
-#             log.info("send a png")
-
-#     except Exception as e:
-#         log.warning(f"Camera error → fallback to test.png ({e})")
-#         with open("test.png", "rb") as f:
-#             img_bytes = f.read()
-
-#     img_b64 = base64.b64encode(img_bytes).decode("utf-8")
-
-#     data = {
-#         "publisher_id": PUBLISHER_ID,
-#         "topic": TOPIC,
-#         "timestamp": time.time(),
-#         "data": {
-#             "image": img_b64,
-#             "width": 333,
-#             "height": 250,
-#             "format": "jpeg",
-#         },
-#     }
-
-#     return json.dumps(data)
-
-def build_payload() -> str:
     try:
-        if CAMERA_MODE == "rpi":
-            cmd = [
-                "rpicam-jpeg", "-o", "-",
-                "--width", "334", "--height", "250",
-                "-t", "1", "--nopreview"
-            ]
-            result = subprocess.run(cmd, capture_output=True)
+        while True:
+            chunk = process.stdout.read(CHUNK_SIZE)
+            if not chunk:
+                break
 
-            if result.returncode != 0:
-                log.error(f"Camera capture failed: {result.stderr.decode()}")
-                raise RuntimeError("Camera capture failed")
+            frame_buf.extend(chunk)
 
-            img_bytes = result.stdout
-            log.info("success capture (rpi camera)")
-        else:
-            with open("test.png", "rb") as f:
-                img_bytes = f.read()
-            log.info("send a png")
+            # JPEG EOI 마커 (0xFF 0xD9) 찾기
+            while True:
+                eoi = frame_buf.find(b'\xff\xd9')
+                if eoi == -1:
+                    break
+
+                # SOI (0xFF 0xD8) 찾기
+                soi = frame_buf.find(b'\xff\xd8')
+                if soi == -1 or soi > eoi:
+                    # SOI 없이 EOI만 있으면 버림
+                    frame_buf = frame_buf[eoi + 2:]
+                    continue
+
+                # SOI ~ EOI 까지가 한 프레임
+                frame_bytes = bytes(frame_buf[soi:eoi + 2])
+                frame_buf = frame_buf[eoi + 2:]
+
+                publish_callback(frame_bytes)
 
     except Exception as e:
-        log.warning(f"Camera error → fallback to test.png ({e})")
-        with open("test.png", "rb") as f:
-            img_bytes = f.read()
-
-    img_b64 = base64.b64encode(img_bytes).decode("utf-8")
-
-    data = {
-        "publisher_id": PUBLISHER_ID,
-        "topic": TOPIC,
-        "timestamp": time.time(),
-        "data": {
-            "image": img_b64,
-            "width": 334,
-            "height": 250,
-            "format": "jpeg",
-        },
-    }
-
-    return json.dumps(data)
+        log.error(f"스트림 읽기 에러: {e}")
+    finally:
+        process.terminate()
+        process.wait()
+        log.info("rpicam-vid 스트림 종료")
 
 
 def main():
@@ -270,7 +235,6 @@ def main():
 
     broker = receive_broker_info()
     register_to_server(broker["id"])
-
     current_broker = broker
 
     client = mqtt.Client(
@@ -280,7 +244,6 @@ def main():
         clean_session=False,
     )
 
-    # set LWT
     client.will_set(
         topic=LWT_TOPIC,
         payload=build_lwt_payload("offline"),
@@ -288,50 +251,50 @@ def main():
         retain=True
     )
 
-    log.info(f"LWT set → topic={LWT_TOPIC}, status=offline")
-
     client.on_connect = on_connect
     client.on_disconnect = on_disconnect
     client.on_publish = on_publish
     client.reconnect_delay_set(min_delay=1, max_delay=30)
 
     mqtt_host = resolve_host(broker["host"])
-    log.info(f"Connecting to {mqtt_host}:{broker['port']}")
-
     client.connect(mqtt_host, broker["port"], keepalive=60)
     client.loop_start()
 
-    log.info(f"Publishing started (interval={PUBLISH_INTERVAL}s)")
+    log.info("MJPEG 스트리밍 모드 시작")
 
-    try:
-        while True:
-            payload = build_payload()
+    def on_frame(frame_bytes):
+        img_b64 = base64.b64encode(frame_bytes).decode("utf-8")
+        payload = json.dumps({
+            "publisher_id": PUBLISHER_ID,
+            "topic": TOPIC,
+            "timestamp": time.time(),
+            "data": {
+                "image": img_b64,
+                "width": 640,
+                "height": 480,
+                "format": "jpeg",
+            },
+        })
 
-            # check MQTT connection status
-            if not is_connected.is_set():
-                # prevent a race condtion by using thread and save a data to local queue to prevent data loss
+        if not is_connected.is_set():
+            with is_lock:
+                local_queue.append(payload)
+            log.warning(f"Broker unavailable → queued (queue_size={len(local_queue)})")
+        else:
+            result = client.publish(TOPIC, payload, qos=1)
+            if result.rc == mqtt.MQTT_ERR_SUCCESS:
+                log.info(f"Published frame (topic={TOPIC})")
+            else:
                 with is_lock:
                     local_queue.append(payload)
-                log.warning(f"Broker unavailable → queued (queue_size={len(local_queue)})")
-            else:
-                # try publishing data
-                result = client.publish(TOPIC, payload, qos=1)
-                if result.rc == mqtt.MQTT_ERR_SUCCESS:
-                    log.info(f"Published (topic={TOPIC})")
-                else:
-                    # save data if publishing fails
-                    with is_lock:
-                        local_queue.append(payload)
-                    log.error(f"Publish failed (rc={result.rc}) → queued")
+                log.error(f"Publish failed (rc={result.rc}) → queued")
 
-            time.sleep(PUBLISH_INTERVAL)
-
+    try:
+        build_payload_stream(on_frame)
     except KeyboardInterrupt:
         log.info("Shutting down...")
     finally:
         client.publish(LWT_TOPIC, build_lwt_payload("offline"), qos=1, retain=True)
-        log.info("LWT update → status=offline (graceful shutdown)")
-
         client.loop_stop()
         client.disconnect()
         log.info("Disconnected.")
