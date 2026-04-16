@@ -186,3 +186,31 @@ async def register_mqtt_brokers() -> None:
             connected_publisher=0,
         )
         await mqtt_repository.save_mqtt_data(broker)
+
+
+async def add_mqtt_broker(request_data: MQTTAddRequest) -> MQTTDataResponse:
+    broker: MQTTBroker = MQTTBroker(
+        host=request_data.mqtt_host,
+        check_host=request_data.mqtt_host,
+        port=request_data.mqtt_port,
+        check_port=request_data.mqtt_port,
+    )
+    broker.is_active = await check_broker_status(broker.host, broker.port)
+    await mqtt_repository.save_mqtt_data(broker)
+    return MQTTDataResponse.from_orm(broker)
+
+
+async def check_broker_status(host: str, port: int, timeout: float = 2.0) -> bool:
+    """상대방의 포트가 열려있는지 확인하는 함수
+        연결이 성공하면 true를 반환하고, 실패하면 false를 반환한다.
+        기본 timeout은 2초로 설정됨.
+    """
+    try:
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(host, port), timeout=timeout
+        )
+        writer.close()
+        await writer.wait_closed()
+        return True
+    except Exception:
+        return False

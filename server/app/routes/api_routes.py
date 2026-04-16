@@ -43,6 +43,18 @@ async def set_mqtt_broker_data_api(
         request_data: MQTTConnectedDataRequest) -> MQTTStatusResponse:
     return await mqtt_service.set_mqtt_broker_data(request_data)
 
+@router.post("/mqtt/add")
+async def add_mqtt_broker_api(
+        request_data: MQTTAddRequest) -> MQTTDataResponse:
+    return await mqtt_service.add_mqtt_broker(request_data)
+
+
+
+@router.post("/publisher")
+async def set_mqtt_broker_data_api(
+        request_data: MQTTConnectedDataRequest) -> MQTTStatusResponse:
+    return await mqtt_service.set_mqtt_broker_data(request_data)
+
 
 @router.get("/mqtt/status")
 async def get_mqtt_broker_status_api(request: Request) -> list[MQTTStatusResponse]:

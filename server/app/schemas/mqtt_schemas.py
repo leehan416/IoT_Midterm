@@ -16,6 +16,10 @@ class MQTTDataResponse(BaseModel):
     host: str
     port: int
 
+class MQTTAddRequest(BaseModel):
+    mqtt_host: str = ""
+    mqtt_port: int
+
 
 class MQTTConnectedDataRequest(BaseModel):
     broker_id: int

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import logging
@@ -10,6 +11,7 @@ from pathlib import Path
 import paho.mqtt.client as mqtt
 
 from app.config.settings import settings
+from app.repository import publisher_repository
 from app.services.video_stream_hub import video_stream_hub
 
 logger = logging.getLogger(__name__)
@@ -20,10 +22,16 @@ class MQTTSubscriberService:
         self._clients: list[mqtt.Client] = []
         self._extra_topics: set[str] = set()
         self._topic_to_publisher_id: dict[str, str] = {}
+        self._loop: asyncio.AbstractEventLoop | None = None
 
     def start(self) -> None:
         if self._clients:
             return
+        if self._loop is None:
+            try:
+                self._loop = asyncio.get_running_loop()
+            except RuntimeError:
+                self._loop = None
 
         started = 0
         for host, port in self._broker_candidates():
@@ -80,6 +88,17 @@ class MQTTSubscriberService:
     def subscribe_topic(self, topic: str, qos: int = 1) -> None:
         self.register_publisher_topic("unknown", topic, qos=qos)
 
+    def unregister_publisher_topic(self, topic: str) -> None:
+        normalized = topic.strip()
+        if not normalized:
+            return
+        self._extra_topics.discard(normalized)
+        self._topic_to_publisher_id.pop(normalized, None)
+        for client in self._clients:
+            result, _ = client.unsubscribe(normalized)
+            if result != mqtt.MQTT_ERR_SUCCESS:
+                logger.error("Failed to unsubscribe topic=%s result=%s", normalized, result)
+
     def _on_connect(self, client: mqtt.Client, _userdata, _flags, rc, _properties) -> None:
         if rc != 0:
             logger.error("MQTT subscriber connect failed rc=%s", rc)
@@ -97,6 +116,10 @@ class MQTTSubscriberService:
 
     def _on_message(self, _client: mqtt.Client, _userdata, msg: mqtt.MQTTMessage) -> None:
         raw_payload = msg.payload.decode("utf-8", errors="replace")
+        if self._is_last_will_payload(raw_payload):
+            self._handle_last_will(msg.topic)
+            return
+
         try:
             payload = json.loads(raw_payload)
         except json.JSONDecodeError:
@@ -117,6 +140,60 @@ class MQTTSubscriberService:
 
         self._save_latest_file(publisher_id, frame_bytes)
         video_stream_hub.publish_frame(publisher_id, frame_bytes)
+
+    def _handle_last_will(self, topic: str) -> None:
+        normalized_topic = topic.strip()
+        if not normalized_topic:
+            return
+        publisher_id = self._extract_publisher_id(normalized_topic, {})
+        self.unregister_publisher_topic(normalized_topic)
+        logger.warning(
+            "Last will received. Removing publisher topic=%s publisher_id=%s",
+            normalized_topic,
+            publisher_id,
+        )
+        if self._loop is None:
+            logger.error("Event loop unavailable. skip publisher removal topic=%s", normalized_topic)
+            return
+        future = asyncio.run_coroutine_threadsafe(
+            publisher_repository.delete_publisher_by_topic(normalized_topic),
+            self._loop,
+        )
+        try:
+            deleted = future.result(timeout=3)
+            logger.info("Removed publisher records=%s topic=%s", deleted, normalized_topic)
+        except Exception:
+            logger.exception("Failed to remove publisher topic=%s", normalized_topic)
+
+    @staticmethod
+    def _is_last_will_payload(raw_payload: str) -> bool:
+        stripped = raw_payload.strip().lower()
+        if stripped in {"offline", "lastwill", "last_will", "disconnect", "disconnected"}:
+            return True
+
+        try:
+            payload = json.loads(raw_payload)
+        except json.JSONDecodeError:
+            return False
+        if not isinstance(payload, dict):
+            return False
+
+        candidates = (
+            payload.get("event"),
+            payload.get("type"),
+            payload.get("status"),
+            payload.get("message"),
+        )
+        for value in candidates:
+            if isinstance(value, str) and value.strip().lower() in {
+                "offline",
+                "lastwill",
+                "last_will",
+                "disconnect",
+                "disconnected",
+            }:
+                return True
+        return False
 
     def _extract_publisher_id(self, topic: str, payload: dict) -> str:
         mapped_publisher_id = self._topic_to_publisher_id.get(topic.strip())

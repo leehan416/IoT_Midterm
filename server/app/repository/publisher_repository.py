@@ -61,3 +61,23 @@ async def get_all_publisher_data() -> list[Publisher]:
 async def clear_publisher_datas() -> None:
     redis_client = get_redis_client(REDIS_PUBLISHER_DB)
     await redis_client.flushdb()
+
+
+async def delete_publisher_by_topic(topic: str) -> int:
+    redis_client = get_redis_client(REDIS_PUBLISHER_DB)
+    normalized_topic = topic.strip()
+    if not normalized_topic:
+        return 0
+
+    deleted = 0
+    async for key in redis_client.scan_iter(match="publisher:*"):
+        if key == PUBLISHER_SEQ_KEY:
+            continue
+        key_type = await redis_client.type(key)
+        if key_type != "hash":
+            continue
+        stored_topic = await redis_client.hget(key, "topic")
+        if stored_topic != normalized_topic:
+            continue
+        deleted += await redis_client.delete(key)
+    return deleted
