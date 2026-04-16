@@ -17,7 +17,7 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-SERVER_URL = os.getenv("SERVER_URL", "http://192.168.0.16:80")
+SERVER_URL = os.getenv("SERVER_URL", "http://172.18.137.135:80")
 PUBLISHER_ID = os.getenv("PUBLISHER_ID", "camera-1")
 TOPIC_PREFIX = os.getenv("TOPIC_PREFIX", "iot/video/stream")
 PUBLISH_INTERVAL = float(os.getenv("PUBLISH_INTERVAL", "1.0"))
@@ -25,7 +25,9 @@ MQTT_HOST_OVERRIDE = os.getenv("MQTT_HOST_OVERRIDE", "")
 PUBLISHER_HOST_OVERRIDE = os.getenv("PUBLISHER_HOST", "")
 
 TOPIC = f"{TOPIC_PREFIX}/{PUBLISHER_ID}"
+LWT_TOPIC = f"{TOPIC}/status"
 
+# runtime status variables
 local_queue: deque[str] = deque()
 is_connected = threading.Event()
 is_lock = threading.Lock()
@@ -34,40 +36,42 @@ current_broker: dict = {}
 
 CAMERA_MODE = "rpi"
 
-def resolve_host(broker_host: str) -> str:
-    if MQTT_HOST_OVERRIDE:
-        return MQTT_HOST_OVERRIDE
+# create lwt msg
+def build_lwt_payload(status: str):
+    return json.dumps({
+        "publisher_id": PUBLISHER_ID,
+        "status": status,
+        "timestamp": time.time()
+    })
 
-    if broker_host.startswith("mosquitto"):
-        parsed = urlparse(SERVER_URL)
-        fallback_host = parsed.hostname
-        log.warning(f"Broker host '{broker_host}' not resolvable → using {fallback_host}")
-        return fallback_host
-
-    return broker_host
-
-
+# callback func when MQTT connection is successful
 def on_connect(client, userdata, flags, rc, properties):
     if rc == 0:
         log.info(f"Connected to broker: {current_broker.get('host')} (topic: {TOPIC})")
         is_connected.set()
+        
+        client.publish(LWT_TOPIC, build_lwt_payload("online"), qos=1, retain=True)
+        log.info(f"LWT update → status=online")
+
         flush_local_queue(client)
     else:
         log.error(f"Connection failed: rc={rc}")
         is_connected.clear()
 
 
+# callback func when MQTT connection is lost
 def on_disconnect(client, userdata, flags, rc, properties):
     if rc != 0:
         log.warning(f"Unexpected disconnection (rc={rc}) → failover 시작")
         is_connected.clear()
         threading.Thread(target=failover, args=(client,), daemon=True).start()
 
-
+# callback func for pub acknowledgement
 def on_publish(client, userdata, mid, rc, properties):
     log.debug(f"PUBACK received (mid={mid})")
 
 
+# get a broker info from server
 def receive_broker_info() -> dict:
     for attempt in range(1, 6):
         try:
@@ -82,6 +86,21 @@ def receive_broker_info() -> dict:
     raise RuntimeError("Unable to retrieve broker info from server.")
 
 
+# when broker host is unusual, resolve broker host
+def resolve_host(broker_host: str) -> str:
+    # change a broker
+    if MQTT_HOST_OVERRIDE:
+        return MQTT_HOST_OVERRIDE
+
+    if broker_host.startswith("mosquitto"):
+        parsed = urlparse(SERVER_URL)
+        fallback_host = parsed.hostname
+        log.warning(f"Broker host '{broker_host}' not resolvable → using {fallback_host}")
+        return fallback_host
+
+    return broker_host
+
+# get a publisher's ip
 def resolve_publisher_host() -> str:
     if PUBLISHER_HOST_OVERRIDE.strip():
         return PUBLISHER_HOST_OVERRIDE.strip()
@@ -90,15 +109,16 @@ def resolve_publisher_host() -> str:
     except Exception:
         return "127.0.0.1"
 
-
+# register publisher info to server
 def register_to_server(broker_id: int) -> None:
     publisher_host = resolve_publisher_host()
+    
     for attempt in range(1, 6):
         try:
             res = requests.post(
                 f"{SERVER_URL}/api/mqtt",
                 json={
-                    "broker_id": broker_id,
+                    "id": broker_id,
                     "publisher_host": publisher_host,
                     "topic": TOPIC,
                 },
@@ -113,6 +133,7 @@ def register_to_server(broker_id: int) -> None:
     raise RuntimeError("Unable to register to server.")
 
 
+# handle failover when connection is lost
 def failover(client: mqtt.Client):
     global current_broker
 
@@ -136,7 +157,7 @@ def failover(client: mqtt.Client):
 
     log.error("Failover exhausted. Messages preserved in local_queue.")
 
-
+# queue retransmission
 def flush_local_queue(client: mqtt.Client):
     with is_lock:
         count = len(local_queue)
@@ -156,24 +177,67 @@ def flush_local_queue(client: mqtt.Client):
             log.error("Flush failed, stopping flush.")
             break
 
-def build_payload() -> str:
-    IMAGE_PATH = "capture.jpg"
+# make a data
+# def build_payload() -> str:
+#     IMAGE_PATH = "capture.jpg"
 
+#     try:
+#         if CAMERA_MODE == "rpi":
+#             cmd = [ "rpicam-jpeg", "-o", IMAGE_PATH, "--width", "334", "--height", "250", "-t", "1", "--nopreview"
+#             ]
+
+#             result = subprocess.run(cmd, capture_output=True, text=True)
+
+#             if result.returncode != 0:
+#                 log.error(f"Camera capture failed: {result.stderr}")
+#                 raise RuntimeError("Camera capture failed")
+
+#             log.info("success capture (rpi camera)")
+
+#             with open(IMAGE_PATH, "rb") as f:
+#                 img_bytes = f.read()
+#         else:
+#             with open("test.png", "rb") as f:
+#                 img_bytes = f.read()
+#             log.info("send a png")
+
+#     except Exception as e:
+#         log.warning(f"Camera error → fallback to test.png ({e})")
+#         with open("test.png", "rb") as f:
+#             img_bytes = f.read()
+
+#     img_b64 = base64.b64encode(img_bytes).decode("utf-8")
+
+#     data = {
+#         "publisher_id": PUBLISHER_ID,
+#         "topic": TOPIC,
+#         "timestamp": time.time(),
+#         "data": {
+#             "image": img_b64,
+#             "width": 333,
+#             "height": 250,
+#             "format": "jpeg",
+#         },
+#     }
+
+#     return json.dumps(data)
+
+def build_payload() -> str:
     try:
         if CAMERA_MODE == "rpi":
-            cmd = [ "rpicam-jpeg", "-o", IMAGE_PATH, "--width", "334", "--height", "250", "-t", "1", "--nopreview"
+            cmd = [
+                "rpicam-jpeg", "-o", "-",
+                "--width", "334", "--height", "250",
+                "-t", "1", "--nopreview"
             ]
-
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = subprocess.run(cmd, capture_output=True)
 
             if result.returncode != 0:
-                log.error(f"Camera capture failed: {result.stderr}")
+                log.error(f"Camera capture failed: {result.stderr.decode()}")
                 raise RuntimeError("Camera capture failed")
 
+            img_bytes = result.stdout
             log.info("success capture (rpi camera)")
-
-            with open(IMAGE_PATH, "rb") as f:
-                img_bytes = f.read()
         else:
             with open("test.png", "rb") as f:
                 img_bytes = f.read()
@@ -192,7 +256,7 @@ def build_payload() -> str:
         "timestamp": time.time(),
         "data": {
             "image": img_b64,
-            "width": 333,
+            "width": 334,
             "height": 250,
             "format": "jpeg",
         },
@@ -215,6 +279,17 @@ def main():
         protocol=mqtt.MQTTv311,
         clean_session=False,
     )
+
+    # set LWT
+    client.will_set(
+        topic=LWT_TOPIC,
+        payload=build_lwt_payload("offline"),
+        qos=1,
+        retain=True
+    )
+
+    log.info(f"LWT set → topic={LWT_TOPIC}, status=offline")
+
     client.on_connect = on_connect
     client.on_disconnect = on_disconnect
     client.on_publish = on_publish
@@ -232,15 +307,19 @@ def main():
         while True:
             payload = build_payload()
 
+            # check MQTT connection status
             if not is_connected.is_set():
+                # prevent a race condtion by using thread and save a data to local queue to prevent data loss
                 with is_lock:
                     local_queue.append(payload)
                 log.warning(f"Broker unavailable → queued (queue_size={len(local_queue)})")
             else:
+                # try publishing data
                 result = client.publish(TOPIC, payload, qos=1)
                 if result.rc == mqtt.MQTT_ERR_SUCCESS:
                     log.info(f"Published (topic={TOPIC})")
                 else:
+                    # save data if publishing fails
                     with is_lock:
                         local_queue.append(payload)
                     log.error(f"Publish failed (rc={result.rc}) → queued")
@@ -250,6 +329,9 @@ def main():
     except KeyboardInterrupt:
         log.info("Shutting down...")
     finally:
+        client.publish(LWT_TOPIC, build_lwt_payload("offline"), qos=1, retain=True)
+        log.info("LWT update → status=offline (graceful shutdown)")
+
         client.loop_stop()
         client.disconnect()
         log.info("Disconnected.")
