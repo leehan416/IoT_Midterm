@@ -116,7 +116,7 @@ def register_to_server(broker_id: int) -> None:
     for attempt in range(1, 6):
         try:
             res = requests.post(
-                f"{SERVER_URL}/api/mqtt",
+                f"{SERVER_URL}/api/publisher",
                 json={
                     "id": broker_id,
                     "publisher_host": publisher_host,
