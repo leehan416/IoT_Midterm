@@ -6,9 +6,9 @@ from app.config.settings import settings
 from fastapi import HTTPException
 import asyncio
 import logging
+from datetime import UTC, datetime
 
 import app.repository.mqtt_repository as mqtt_repository
-from app.scheduler.mqtt_checker import check_broker_status
 from app.services.mqtt_subscriber_service import mqtt_subscriber_service
 
 logger = logging.getLogger(__name__)
@@ -112,6 +112,8 @@ async def publisher_subscription_sync_worker(interval: int = 3) -> None:
     while True:
         try:
             await restore_publisher_subscriptions()
+            await _cleanup_stale_publishers()
+            await _sync_connected_publisher_counts()
         except Exception as e:
             logger.error("publisher subscription sync failed: %s", e)
         await asyncio.sleep(interval)
@@ -130,6 +132,29 @@ async def _sync_connected_publisher_counts() -> None:
         if broker.connected_publisher != actual_count:
             broker.connected_publisher = actual_count
             await mqtt_repository.save_mqtt_data(broker)
+
+
+async def _cleanup_stale_publishers() -> None:
+    ttl_seconds = settings.mqtt_publisher_ttl_seconds
+    if ttl_seconds <= 0:
+        return
+
+    now = datetime.now(UTC)
+    publishers = await publisher_repository.get_all_publisher_data()
+    for publisher in publishers:
+        inactive_for = (now - publisher.updated_at).total_seconds()
+        if inactive_for <= ttl_seconds:
+            continue
+        deleted = await publisher_repository.delete_publisher_by_topic(publisher.topic)
+        mqtt_subscriber_service.unregister_publisher_topic(publisher.topic)
+        logger.warning(
+            "Publisher expired by TTL id=%s topic=%s inactive_for=%.1fs ttl=%ss deleted=%s",
+            publisher.id,
+            publisher.topic,
+            inactive_for,
+            ttl_seconds,
+            deleted,
+        )
 
 
 def _parse_mqtt_brokers() -> list[tuple[str, int]]:

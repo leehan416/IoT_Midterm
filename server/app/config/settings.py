@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     mqtt_advertised_host: str = "localhost"
     mqtt_advertised_port_start: int = 1883
     mqtt_subscribe_topic: str = "iot/#"
+    mqtt_publisher_ttl_seconds: int = 20
     mqtt_upload_dir: str = "app/static/uploads"
     ws_heartbeat_seconds: int = 20
 

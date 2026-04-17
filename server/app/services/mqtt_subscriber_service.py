@@ -117,8 +117,14 @@ class MQTTSubscriberService:
     def _on_message(self, _client: mqtt.Client, _userdata, msg: mqtt.MQTTMessage) -> None:
         raw_payload = msg.payload.decode("utf-8", errors="replace")
         if self._is_last_will_payload(raw_payload):
-            self._handle_last_will(msg.topic)
+            logger.warning(
+                "LWT message received topic=%s payload=%s",
+                msg.topic,
+                raw_payload[:200],
+            )
+            self._handle_last_will(msg.topic, raw_payload)
             return
+        self._touch_publisher_activity(msg.topic)
 
         try:
             payload = json.loads(raw_payload)
@@ -141,12 +147,25 @@ class MQTTSubscriberService:
         self._save_latest_file(publisher_id, frame_bytes)
         video_stream_hub.publish_frame(publisher_id, frame_bytes)
 
-    def _handle_last_will(self, topic: str) -> None:
+    def _handle_last_will(self, topic: str, raw_payload: str) -> None:
         normalized_topic = topic.strip()
         if not normalized_topic:
             return
-        publisher_id = self._extract_publisher_id(normalized_topic, {})
-        self.unregister_publisher_topic(normalized_topic)
+
+        payload: dict = {}
+        try:
+            parsed = json.loads(raw_payload)
+            if isinstance(parsed, dict):
+                payload = parsed
+        except json.JSONDecodeError:
+            payload = {}
+
+        publisher_id = self._extract_publisher_id(normalized_topic, payload)
+        topic_candidates = {normalized_topic}
+        if normalized_topic.endswith("/status"):
+            topic_candidates.add(normalized_topic[: -len("/status")])
+        for candidate in topic_candidates:
+            self.unregister_publisher_topic(candidate)
         logger.warning(
             "Last will received. Removing publisher topic=%s publisher_id=%s",
             normalized_topic,
@@ -155,15 +174,41 @@ class MQTTSubscriberService:
         if self._loop is None:
             logger.error("Event loop unavailable. skip publisher removal topic=%s", normalized_topic)
             return
+        async def _cleanup() -> int:
+            deleted_total = 0
+            for candidate in topic_candidates:
+                deleted_total += await publisher_repository.delete_publisher_by_topic(candidate)
+            if isinstance(publisher_id, str) and publisher_id and publisher_id != "unknown":
+                deleted_total += await publisher_repository.delete_publisher_by_publisher_id(publisher_id)
+            return deleted_total
+
+        future = asyncio.run_coroutine_threadsafe(_cleanup(), self._loop)
+        try:
+            deleted = future.result(timeout=3)
+            logger.info(
+                "LWT cleanup completed topic=%s candidates=%s publisher_id=%s removed_records=%s",
+                normalized_topic,
+                sorted(topic_candidates),
+                publisher_id,
+                deleted,
+            )
+        except Exception:
+            logger.exception("Failed to remove publisher topic=%s", normalized_topic)
+
+    def _touch_publisher_activity(self, topic: str) -> None:
+        normalized_topic = topic.strip()
+        if not normalized_topic or self._loop is None:
+            return
         future = asyncio.run_coroutine_threadsafe(
-            publisher_repository.delete_publisher_by_topic(normalized_topic),
+            publisher_repository.touch_publisher_by_topic(normalized_topic),
             self._loop,
         )
         try:
-            deleted = future.result(timeout=3)
-            logger.info("Removed publisher records=%s topic=%s", deleted, normalized_topic)
+            touched = future.result(timeout=2)
+            if touched > 0:
+                logger.debug("Publisher heartbeat updated topic=%s touched=%s", normalized_topic, touched)
         except Exception:
-            logger.exception("Failed to remove publisher topic=%s", normalized_topic)
+            logger.exception("Failed to update publisher heartbeat topic=%s", normalized_topic)
 
     @staticmethod
     def _is_last_will_payload(raw_payload: str) -> bool:
