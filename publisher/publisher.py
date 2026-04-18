@@ -154,7 +154,7 @@ def register_to_server(broker_id: int) -> None:
 
 # handle failover when connection is lost
 def failover(client: mqtt.Client):
-    global current_broker
+    global current_broker, CAM_ID, TOPIC, LWT_TOPIC
 
     for attempt in range(1, 11):
         try:
