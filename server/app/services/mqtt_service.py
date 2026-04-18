@@ -24,7 +24,7 @@ async def get_mqtt_broker_data(request_host: str | None = None) -> MQTTDataRespo
 
     # broker list를 반환하기 전에 status check
     for broker in active_brokers:
-        is_truly_active = await check_broker_status(broker.check_host, broker.check_port, timeout=0.5)
+        is_truly_active = await check_broker_status(broker.host, broker.port, timeout=0.5)
         if is_truly_active:
             if broker.host == "localhost":
                 broker = broker.model_copy(update={"host": _resolve_response_host(request_host)})
@@ -44,7 +44,7 @@ async def set_mqtt_broker_data(
     if broker is None:
         raise HTTPException(status_code=404, detail="No MQTT broker data found")
     if not broker.is_active:
-        raise HTTPException(status_code=409, detail="MQTT broker is inactive")
+        raise HTTPException(status_code=404, detail="MQTT broker is inactive")
     normalized_topic = request_data.topic.strip()
     if not normalized_topic:
         raise HTTPException(status_code=400, detail="topic is required")
@@ -213,17 +213,10 @@ async def register_mqtt_brokers() -> None:
 
     advertised_brokers = _parse_mqtt_brokers()
     for idx, (host, port) in enumerate(advertised_brokers, start=1):
-        check_host = (
-            settings.mqtt_host
-            if settings.mqtt_broker_count <= 1
-            else f"{settings.mqtt_broker_name_prefix}-{idx}"
-        )
         broker = MQTTBroker(
             id=idx,
             host=host,
             port=port,
-            check_host=check_host,
-            check_port=settings.mqtt_port,
             is_active=True,
             connected_publisher=0,
         )
@@ -233,9 +226,7 @@ async def register_mqtt_brokers() -> None:
 async def add_mqtt_broker(request_data: MQTTAddRequest) -> MQTTDataResponse:
     broker: MQTTBroker = MQTTBroker(
         host=request_data.mqtt_host,
-        check_host=request_data.mqtt_host,
         port=request_data.mqtt_port,
-        check_port=request_data.mqtt_port,
     )
     broker.is_active = await check_broker_status(broker.host, broker.port)
     await mqtt_repository.save_mqtt_data(broker)

@@ -26,11 +26,10 @@ async def mqtt_status_checker(interval: int = 1):
         try:
             brokers = await mqtt_repository.get_all_mqtt_datas()
             for broker in brokers:
-                is_active = await check_broker_status(broker.check_host, broker.check_port)
+                is_active = await check_broker_status(broker.host, broker.port)
                 if broker.is_active != is_active:
                     logger.info(
-                        f"Broker {broker.id} ({broker.host}:{broker.port}, "
-                        f"check={broker.check_host}:{broker.check_port}) changed status: "
+                        f"Broker {broker.id} ({broker.host}:{broker.port}) changed status: "
                         f"{broker.is_active} -> {is_active}"
                     )
                     broker.is_active = is_active

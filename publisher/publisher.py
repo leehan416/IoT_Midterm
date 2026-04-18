@@ -132,6 +132,20 @@ def register_to_server(broker_id: int) -> None:
             res.raise_for_status()
             log.info(f"Registered to server (broker_id={broker_id}, topic={TOPIC})")
             return
+        except requests.exceptions.HTTPError as e:
+            detail = ""
+            response = e.response
+            if response is not None:
+                try:
+                    payload = response.json()
+                    detail = payload.get("detail", payload)
+                except ValueError:
+                    detail = response.text.strip()
+            if detail:
+                log.warning(f"Failed to register to server ({attempt}/5): {e} | detail={detail}")
+            else:
+                log.warning(f"Failed to register to server ({attempt}/5): {e}")
+            time.sleep(3)
         except Exception as e:
             log.warning(f"Failed to register to server ({attempt}/5): {e}")
             time.sleep(3)

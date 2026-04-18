@@ -319,7 +319,7 @@ async def _broker_candidates() -> list[tuple[str, int]]:
         for broker in brokers:
             if not broker.is_active:
                 continue
-            repository_candidates.append((broker.check_host, broker.check_port))
+            repository_candidates.append((broker.host, broker.port))
     except Exception:
         logger.exception("Failed to load MQTT broker candidates from repository")
 
