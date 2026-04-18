@@ -69,6 +69,11 @@ async def set_mqtt_broker_active_api(
         request_data: MQTTActiveRequest) -> MQTTStatusResponse:
     return await mqtt_service.set_mqtt_active(request_data)
 
+
+@router.delete("/mqtt/{broker_id}")
+async def delete_mqtt_broker_api(broker_id: int) -> MQTTStatusResponse:
+    return await mqtt_service.delete_mqtt_broker(broker_id)
+
 ########################################################################################################################
 # video streaming
 

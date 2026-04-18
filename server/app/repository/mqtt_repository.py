@@ -60,3 +60,8 @@ async def get_all_mqtt_datas() -> list[MQTTBroker]:
 async def clear_mqtt_datas() -> None:
     redis_client = get_redis_client(REDIS_MQTT_DB)
     await redis_client.flushdb()
+
+
+async def delete_mqtt_data_by_id(broker_id: int) -> int:
+    redis_client = get_redis_client(REDIS_MQTT_DB)
+    return await redis_client.delete(_mqtt_key(broker_id))

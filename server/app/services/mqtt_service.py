@@ -84,6 +84,22 @@ async def set_mqtt_active(request_data: MQTTActiveRequest) -> MQTTStatusResponse
     return MQTTStatusResponse.model_validate(await mqtt_repository.save_mqtt_data(broker))
 
 
+async def delete_mqtt_broker(broker_id: int) -> MQTTStatusResponse:
+    broker = await mqtt_repository.get_mqtt_data_by_id(broker_id)
+    if broker is None:
+        raise HTTPException(status_code=404, detail="No MQTT broker data found")
+
+    publishers = await publisher_repository.get_all_publisher_data()
+    for publisher in publishers:
+        if publisher.broker_id != broker_id:
+            continue
+        await publisher_repository.delete_publisher_by_topic(publisher.topic)
+        mqtt_subscriber_service.unregister_publisher_topic(publisher.topic)
+
+    await mqtt_repository.delete_mqtt_data_by_id(broker_id)
+    return MQTTStatusResponse.model_validate(broker)
+
+
 async def get_all_publishers() -> list[PublisherResponse]:
     publishers = await publisher_repository.get_all_publisher_data()
     brokers = await mqtt_repository.get_all_mqtt_datas()
