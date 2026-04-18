@@ -10,6 +10,9 @@ import base64
 from collections import deque
 from urllib.parse import urlparse
 import subprocess
+import uuid
+import random
+import uuid
 
 logging.basicConfig(
     level=logging.INFO,
@@ -23,8 +26,10 @@ TOPIC_PREFIX = os.getenv("TOPIC_PREFIX", "iot/video/stream")
 PUBLISH_INTERVAL = float(os.getenv("PUBLISH_INTERVAL", "1.0"))
 MQTT_HOST_OVERRIDE = os.getenv("MQTT_HOST_OVERRIDE", "")
 PUBLISHER_HOST_OVERRIDE = os.getenv("PUBLISHER_HOST", "")
+# generate random value
+CAM_ID = random.randint(1, 9999)
 
-TOPIC = f"{TOPIC_PREFIX}/{PUBLISHER_ID}"
+TOPIC = f"{TOPIC_PREFIX}/{PUBLISHER_ID}/{CAM_ID}"
 LWT_TOPIC = f"{TOPIC}/status"
 
 # runtime status variables
@@ -35,6 +40,7 @@ current_broker: dict = {}
 
 
 CAMERA_MODE = "rpi"
+
 
 # create lwt msg
 def build_lwt_payload(status: str):
@@ -200,34 +206,31 @@ def build_payload_stream(publish_callback):
             chunk = process.stdout.read(CHUNK_SIZE)
             if not chunk:
                 break
-
             frame_buf.extend(chunk)
 
-            # JPEG EOI 마커 (0xFF 0xD9) 찾기
             while True:
+                # find EOI (0xFF 0xD9)
                 eoi = frame_buf.find(b'\xff\xd9')
                 if eoi == -1:
                     break
-
-                # SOI (0xFF 0xD8) 찾기
+                # find SOI (0xFF 0xD8)
                 soi = frame_buf.find(b'\xff\xd8')
                 if soi == -1 or soi > eoi:
-                    # SOI 없이 EOI만 있으면 버림
+                    # if there are only EOI, then dump
                     frame_buf = frame_buf[eoi + 2:]
                     continue
-
-                # SOI ~ EOI 까지가 한 프레임
+                # SOI through EOI is one complete frame
                 frame_bytes = bytes(frame_buf[soi:eoi + 2])
                 frame_buf = frame_buf[eoi + 2:]
 
                 publish_callback(frame_bytes)
 
     except Exception as e:
-        log.error(f"스트림 읽기 에러: {e}")
+        log.error(f"Stream read error: {e}")
     finally:
         process.terminate()
         process.wait()
-        log.info("rpicam-vid 스트림 종료")
+        log.info("rpicam-vid stream stopped")
 
 
 def main():
