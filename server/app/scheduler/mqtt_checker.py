@@ -1,8 +1,7 @@
 import asyncio
 import logging
 
-from app.repository import mqtt_repository
-from app.services.mqtt_service import check_broker_status
+import app.services.mqtt_service as mqtt_service
 
 logger = logging.getLogger(__name__)
 
@@ -24,16 +23,7 @@ async def mqtt_status_checker(interval: int = 1):
     logger.info(f"MQTT checker task started. Interval: {interval} seconds.")
     while True:
         try:
-            brokers = await mqtt_repository.get_all_mqtt_datas()
-            for broker in brokers:
-                is_active = await check_broker_status(broker.host, broker.port)
-                if broker.is_active != is_active:
-                    logger.info(
-                        f"Broker {broker.id} ({broker.host}:{broker.port}) changed status: "
-                        f"{broker.is_active} -> {is_active}"
-                    )
-                    broker.is_active = is_active
-                    await mqtt_repository.save_mqtt_data(broker)
+            await mqtt_service.sync_mqtt_broker_statuses()
         except Exception as e:
             logger.error(f"Error during MQTT status check: {e}")
             

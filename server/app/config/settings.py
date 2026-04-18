@@ -11,22 +11,18 @@ class Settings(BaseSettings):
 
     redis_host: str = "redis"
     redis_port: int = 6379
-    mqtt_host: str = "mosquitto"
+    mqtt_host: str = ""
     mqtt_port: int = 1883
     mqtt_brokers: str = ""
-    mqtt_broker_count: int = 1
-    mqtt_broker_name_prefix: str = "mosquitto"
+    mqtt_broker_count: int = 0
+    mqtt_broker_name_prefix: str = ""
     mqtt_topic_prefix: str = "iot"
     mqtt_default_host: str = ""
     mqtt_advertised_host: str = "localhost"
     mqtt_advertised_port_start: int = 1883
     mqtt_subscribe_topic: str = "iot/#"
-    mqtt_publisher_ttl_seconds: int = 20
-    mqtt_upload_dir: str = "app/static/uploads"
-    ws_heartbeat_seconds: int = 20
+    mqtt_publisher_ttl_seconds: int = 5
+    ws_heartbeat_seconds: int = 5
 
 settings = Settings()
 
-
-def ensure_runtime_dirs() -> None:
-    Path(settings.mqtt_upload_dir).mkdir(parents=True, exist_ok=True)

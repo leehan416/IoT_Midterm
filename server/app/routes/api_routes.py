@@ -5,6 +5,7 @@ from app.schemas.mqtt_schemas import *
 
 import app.services.comon_service as comon_service
 import app.services.mqtt_service as mqtt_service
+import app.services.publisher_service as publisher_service
 from app.services.video_stream_service import stream_video_websocket
 
 router = APIRouter(prefix="/api", tags=["api"])
@@ -21,14 +22,14 @@ async def healthcheck_api() -> HealthCheckResponse:
 # publisher
 
 @router.get("/publisher")
-# @router.get("/publisher/all")
 async def get_all_publisher_data_api() -> list[PublisherResponse]:
-    return await mqtt_service.get_all_publishers()
+    return await publisher_service.get_all_publishers()
+
 
 @router.post("/publisher")
 async def set_mqtt_broker_data_api(
         request_data: MQTTConnectedDataRequest) -> MQTTStatusResponse:
-    return await mqtt_service.set_mqtt_broker_data(request_data)
+    return await publisher_service.set_mqtt_broker_data(request_data)
 
 
 ########################################################################################################################
@@ -45,7 +46,8 @@ async def get_mqtt_broker_data_api(request: Request) -> MQTTDataResponse:
 @router.post("/mqtt")
 async def set_mqtt_broker_data_api(
         request_data: MQTTConnectedDataRequest) -> MQTTStatusResponse:
-    return await mqtt_service.set_mqtt_broker_data(request_data)
+    return await publisher_service.set_mqtt_broker_data(request_data)
+
 
 @router.post("/mqtt/add")
 async def add_mqtt_broker_api(
@@ -53,14 +55,9 @@ async def add_mqtt_broker_api(
     return await mqtt_service.add_mqtt_broker(request_data)
 
 
-
-
 @router.get("/mqtt/status")
-async def get_mqtt_broker_status_api(request: Request) -> list[MQTTStatusResponse]:
-    request_host = request.headers.get("x-forwarded-host") or request.url.hostname
-    if request_host and ":" in request_host:
-        request_host = request_host.split(":", 1)[0]
-    return await mqtt_service.get_mqtt_status(request_host=request_host)
+async def get_mqtt_broker_status_api() -> list[MQTTStatusResponse]:
+    return await mqtt_service.get_mqtt_status()
 
 
 @router.patch("/mqtt/active")

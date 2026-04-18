@@ -6,14 +6,13 @@ import json
 import logging
 import socket
 import uuid
-from pathlib import Path
 
 import paho.mqtt.client as mqtt
 
-from app.config.settings import settings
+import app.repository.publisher_repository as publisher_repository
+import app.services.video_stream_service as video_stream_service
+import app.services.mqtt_service as mqtt_service
 import app.repository.mqtt_repository as mqtt_repository
-from app.repository import publisher_repository
-from app.services import video_stream_hub
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +23,19 @@ _topic_to_publisher_id: dict[str, str] = {}
 _loop: asyncio.AbstractEventLoop | None = None
 
 
+def _status_topic_of(topic: str) -> str:
+    normalized = topic.strip()
+    if not normalized:
+        return ""
+    if normalized.endswith("/status"):
+        return normalized
+    return f"{normalized}/status"
+
+
 async def start() -> None:
+    """MQTT 구독 서비스를 시작하는 함수.
+    현재 이벤트 루프를 저장하고 브로커 연결 갱신을 수행한다.
+    """
     global _loop
     if _loop is None:
         try:
@@ -36,6 +47,9 @@ async def start() -> None:
 
 
 def stop() -> None:
+    """MQTT 구독 서비스를 중지하는 함수.
+    활성 클라이언트를 모두 종료하고 내부 연결 상태를 초기화한다.
+    """
     global _clients, _connected_brokers
     if not _clients:
         return
@@ -49,7 +63,24 @@ def stop() -> None:
 
 
 async def refresh_brokers() -> None:
-    candidates = await _broker_candidates()
+    """활성 브로커 후보를 기준으로 MQTT 클라이언트를 갱신하는 함수.
+    아직 연결되지 않은 브로커에 대해 신규 구독 클라이언트를 생성한다.
+    """
+    await mqtt_service.sync_mqtt_broker_statuses()
+    repository_candidates: list[tuple[str, int]] = []
+    try:
+        brokers = await mqtt_repository.get_all_mqtt_datas()
+        for broker in brokers:
+            if not broker.is_active:
+                continue
+            repository_candidates.append((broker.host, broker.port))
+    except Exception:
+        logger.exception("Failed to load MQTT broker candidates from repository")
+
+    candidates = list(dict.fromkeys(repository_candidates))
+    if not candidates:
+        logger.info("MQTT subscriber skipped (no broker candidates configured)")
+        return
     started = 0
     for host, port in candidates:
         if _ensure_client(host, port):
@@ -59,6 +90,9 @@ async def refresh_brokers() -> None:
 
 
 def _ensure_client(host: str, port: int) -> bool:
+    """지정한 브로커에 MQTT 구독 클라이언트 연결을 보장하는 함수.
+    연결 생성에 성공하면 `True`, 실패 또는 이미 연결된 경우 `False`를 반환한다.
+    """
     endpoint = (host, port)
     if endpoint in _connected_brokers:
         return False
@@ -86,52 +120,75 @@ def _ensure_client(host: str, port: int) -> bool:
         return False
 
 
-def register_publisher_topic(publisher_id: int | str, topic: str, qos: int = 1) -> None:
+def register_publisher_topic(publisher_id: str, topic: str, qos: int = 1) -> None:
+    """퍼블리셔 토픽을 동적 구독 목록에 등록하는 함수.
+    현재 연결된 모든 클라이언트에 해당 토픽 구독을 즉시 적용한다.
+    """
     normalized = topic.strip()
     if not normalized:
         return
 
-    _topic_to_publisher_id[normalized] = str(publisher_id)
-    _extra_topics.add(normalized)
-    for client in _clients:
-        result, _ = client.subscribe(normalized, qos=qos)
-        if result != mqtt.MQTT_ERR_SUCCESS:
-            logger.error("Failed to subscribe topic=%s result=%s", normalized, result)
-        else:
-            logger.info(
-                "MQTT subscriber subscribed dynamic topic=%s publisher_id=%s",
-                normalized,
-                publisher_id,
-            )
+    topics = {normalized}
+    status_topic = _status_topic_of(normalized)
+    if status_topic:
+        topics.add(status_topic)
 
-
-def subscribe_topic(topic: str, qos: int = 1) -> None:
-    register_publisher_topic("unknown", topic, qos=qos)
+    for subscribe_topic in topics:
+        _topic_to_publisher_id[subscribe_topic] = publisher_id
+        _extra_topics.add(subscribe_topic)
+        for client in _clients:
+            result, _ = client.subscribe(subscribe_topic, qos=qos)
+            if result != mqtt.MQTT_ERR_SUCCESS:
+                logger.error("Failed to subscribe topic=%s result=%s", subscribe_topic, result)
+            else:
+                logger.info(
+                    "MQTT subscriber subscribed dynamic topic=%s publisher_id=%s",
+                    subscribe_topic,
+                    publisher_id,
+                )
 
 
 def unregister_publisher_topic(topic: str) -> None:
+    """퍼블리셔 토픽을 동적 구독 목록에서 제거하는 함수.
+    내부 매핑을 정리하고 연결된 클라이언트의 구독을 해제한다.
+    """
     normalized = topic.strip()
     if not normalized:
         return
-    _extra_topics.discard(normalized)
-    _topic_to_publisher_id.pop(normalized, None)
-    for client in _clients:
-        result, _ = client.unsubscribe(normalized)
-        if result != mqtt.MQTT_ERR_SUCCESS:
-            logger.error("Failed to unsubscribe topic=%s result=%s", normalized, result)
+    topics = {normalized}
+    status_topic = _status_topic_of(normalized)
+    if status_topic:
+        topics.add(status_topic)
+    if normalized.endswith("/status"):
+        base_topic = normalized[: -len("/status")]
+        if base_topic:
+            topics.add(base_topic)
+
+    for unsubscribe_topic in topics:
+        _extra_topics.discard(unsubscribe_topic)
+        _topic_to_publisher_id.pop(unsubscribe_topic, None)
+        for client in _clients:
+            result, _ = client.unsubscribe(unsubscribe_topic)
+            if result != mqtt.MQTT_ERR_SUCCESS:
+                logger.error("Failed to unsubscribe topic=%s result=%s", unsubscribe_topic, result)
 
 
 def _on_connect(client: mqtt.Client, _userdata, _flags, rc, _properties) -> None:
+    """MQTT 연결 성공 시 기본/동적 토픽 구독을 수행하는 콜백 함수.
+    연결 실패 코드가 전달되면 구독을 수행하지 않고 오류 로그를 남긴다.
+    """
     if rc != 0:
         logger.error("MQTT subscriber connect failed rc=%s", rc)
         return
-    client.subscribe(settings.mqtt_subscribe_topic, qos=1)
     for topic in _extra_topics:
         client.subscribe(topic, qos=1)
-    logger.info("MQTT subscriber connected and subscribed topic=%s", settings.mqtt_subscribe_topic)
+    logger.info("MQTT subscriber connected and restored dynamic topics count=%s", len(_extra_topics))
 
 
 def _on_disconnect(_client: mqtt.Client, _userdata, _flags, rc, _properties) -> None:
+    """MQTT 연결 종료 이벤트를 처리하는 콜백 함수.
+    정상 종료와 비정상 종료를 구분해 로그를 기록한다.
+    """
     if rc == 0:
         logger.info("MQTT subscriber disconnected gracefully")
         return
@@ -139,6 +196,9 @@ def _on_disconnect(_client: mqtt.Client, _userdata, _flags, rc, _properties) -> 
 
 
 def _on_message(_client: mqtt.Client, _userdata, msg: mqtt.MQTTMessage) -> None:
+    """MQTT 수신 메시지를 처리해 최신 프레임을 반영하는 콜백 함수.
+    Last-Will 여부를 판별하고 일반 메시지는 이미지 디코딩 후 허브로 전달한다.
+    """
     raw_payload = msg.payload.decode("utf-8", errors="replace")
     if _is_last_will_payload(raw_payload):
         logger.warning(
@@ -156,6 +216,16 @@ def _on_message(_client: mqtt.Client, _userdata, msg: mqtt.MQTTMessage) -> None:
         logger.exception("Failed to parse MQTT payload as JSON topic=%s", msg.topic)
         return
 
+    normalized_topic = msg.topic.strip()
+    if normalized_topic.endswith("/status"):
+        status_value = payload.get("status") if isinstance(payload, dict) else None
+        logger.info(
+            "Publisher status update topic=%s status=%s",
+            normalized_topic,
+            status_value if isinstance(status_value, str) else "unknown",
+        )
+        return
+
     publisher_id = _extract_publisher_id(msg.topic, payload)
     image_b64 = payload.get("data", {}).get("image")
     if not isinstance(image_b64, str):
@@ -168,11 +238,13 @@ def _on_message(_client: mqtt.Client, _userdata, msg: mqtt.MQTTMessage) -> None:
         logger.exception("Failed to decode base64 image topic=%s publisher_id=%s", msg.topic, publisher_id)
         return
 
-    _save_latest_file(publisher_id, frame_bytes)
-    video_stream_hub.publish_frame(publisher_id, frame_bytes)
+    video_stream_service.publish_frame(publisher_id, frame_bytes)
 
 
 def _handle_last_will(topic: str, raw_payload: str) -> None:
+    """Last-Will 메시지를 처리해 퍼블리셔 정리를 수행하는 함수.
+    토픽 구독을 해제하고 저장소에서 관련 퍼블리셔 레코드를 삭제한다.
+    """
     normalized_topic = topic.strip()
     if not normalized_topic:
         return
@@ -223,13 +295,26 @@ def _handle_last_will(topic: str, raw_payload: str) -> None:
 
 
 def _touch_publisher_activity(topic: str) -> None:
+    """퍼블리셔 토픽의 최근 활동 시간을 갱신하는 함수.
+    이벤트 루프가 가능할 때 저장소의 heartbeat 타임스탬프를 업데이트한다.
+    """
     normalized_topic = topic.strip()
     if not normalized_topic or _loop is None:
         return
-    future = asyncio.run_coroutine_threadsafe(
-        publisher_repository.touch_publisher_by_topic(normalized_topic),
-        _loop,
-    )
+
+    topics_to_touch = {normalized_topic}
+    if normalized_topic.endswith("/status"):
+        base_topic = normalized_topic[: -len("/status")]
+        if base_topic:
+            topics_to_touch.add(base_topic)
+
+    async def _touch_all() -> int:
+        touched = 0
+        for candidate in topics_to_touch:
+            touched += await publisher_repository.touch_publisher_by_topic(candidate)
+        return touched
+
+    future = asyncio.run_coroutine_threadsafe(_touch_all(), _loop)
     try:
         touched = future.result(timeout=2)
         if touched > 0:
@@ -238,8 +323,10 @@ def _touch_publisher_activity(topic: str) -> None:
         logger.exception("Failed to update publisher heartbeat topic=%s", normalized_topic)
 
 
-
 def _is_last_will_payload(raw_payload: str) -> bool:
+    """수신 페이로드가 Last-Will 메시지인지 판별하는 함수.
+    문자열/JSON 내 이벤트 필드를 검사해 오프라인 신호 여부를 반환한다.
+    """
     stripped = raw_payload.strip().lower()
     if stripped in {"offline", "lastwill", "last_will", "disconnect", "disconnected"}:
         return True
@@ -269,15 +356,14 @@ def _is_last_will_payload(raw_payload: str) -> bool:
     return False
 
 
-
 def _extract_publisher_id(topic: str, payload: dict) -> str:
+    """메시지 토픽과 페이로드에서 퍼블리셔 ID를 추출하는 함수.
+    로컬 매핑, 저장소 조회, 페이로드, 토픽 순서로 후보를 확인한다.
+    """
     normalized_topic = topic.strip()
     mapped_publisher_id = _topic_to_publisher_id.get(normalized_topic)
     if mapped_publisher_id:
         return mapped_publisher_id
-
-    # In multi-server deployments, the registration request may hit another API instance.
-    # Resolve by topic from shared Redis and cache the mapping locally.
     if normalized_topic and _loop is not None:
         try:
             future = asyncio.run_coroutine_threadsafe(
@@ -302,43 +388,3 @@ def _extract_publisher_id(topic: str, payload: dict) -> str:
         if topic_camera_id not in ("#", "+"):
             return topic_camera_id
     return "unknown"
-
-
-
-def _save_latest_file(camera_id: str, frame_bytes: bytes) -> None:
-    target_dir = Path(settings.mqtt_upload_dir) / camera_id
-    target_dir.mkdir(parents=True, exist_ok=True)
-    target_file = target_dir / "latest.jpg"
-    target_file.write_bytes(frame_bytes)
-
-
-async def _broker_candidates() -> list[tuple[str, int]]:
-    repository_candidates: list[tuple[str, int]] = []
-    try:
-        brokers = await mqtt_repository.get_all_mqtt_datas()
-        for broker in brokers:
-            if not broker.is_active:
-                continue
-            repository_candidates.append((broker.host, broker.port))
-    except Exception:
-        logger.exception("Failed to load MQTT broker candidates from repository")
-
-    if repository_candidates:
-        # Keep deterministic ordering and unique endpoints.
-        unique = list(dict.fromkeys(repository_candidates))
-        return unique
-
-    if settings.mqtt_brokers.strip():
-        candidates: list[tuple[str, int]] = []
-        for item in settings.mqtt_brokers.split(","):
-            host, port = item.strip().split(":")
-            candidates.append((host.strip(), int(port.strip())))
-        return candidates
-
-    if settings.mqtt_broker_count > 1:
-        return [
-            (f"{settings.mqtt_broker_name_prefix}-{idx}", settings.mqtt_port)
-            for idx in range(1, settings.mqtt_broker_count + 1)
-        ]
-
-    return [(settings.mqtt_host, settings.mqtt_port)]

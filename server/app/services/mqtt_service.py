@@ -1,236 +1,74 @@
-from app.models.mqtt_broker import MQTTBroker
-from app.models.publisher import Publisher
-from app.repository import publisher_repository
-from app.schemas.mqtt_schemas import *
-from app.config.settings import settings
-from fastapi import HTTPException
 import asyncio
 import logging
-from datetime import UTC, datetime
 
+from fastapi import HTTPException
+
+from app.models.mqtt_broker import MQTTBroker
 import app.repository.mqtt_repository as mqtt_repository
-import app.services.mqtt_subscriber_service as mqtt_subscriber_service
+from app.schemas.mqtt_schemas import MQTTActiveRequest, MQTTAddRequest, MQTTDataResponse, MQTTStatusResponse
+from app.services import publisher_service
 
 logger = logging.getLogger(__name__)
 
 
+########################################################################################################################
+# crud
+async def add_mqtt_broker(request_data: MQTTAddRequest) -> MQTTDataResponse:
+    """새 MQTT 브로커를 등록하는 함수.
+    중복 브로커를 검사한 뒤 상태 체크 결과와 함께 저장한다.
+    """
+    broker: MQTTBroker = MQTTBroker(
+        host=request_data.mqtt_host,
+        port=request_data.mqtt_port,
+        is_active=await check_broker_status(request_data.mqtt_host, request_data.mqtt_port),
+    )
+    mqtt_list: list[MQTTBroker] = await mqtt_repository.get_all_mqtt_datas()
+    for mqtt in mqtt_list:
+        if mqtt.host == request_data.mqtt_host and mqtt.port == request_data.mqtt_port:
+            raise HTTPException(409, "broker already exist")
+    await mqtt_repository.save_mqtt_data(broker)
+    return MQTTDataResponse.model_validate(broker)
+
+
 async def get_mqtt_broker_data(request_host: str | None = None) -> MQTTDataResponse:
-    await _sync_connected_publisher_counts()
+    """활성 MQTT 브로커 중 연결 가능한 브로커 정보를 반환하는 함수.
+    실시간 포트 체크를 통과한 첫 브로커를 응답으로 반환한다.
+    """
+    del request_host
+    await publisher_service.sync_connected_publisher_counts()
+    await sync_mqtt_broker_statuses(timeout=0.5)
     mqtt_list: list[MQTTBroker] = await mqtt_repository.get_all_mqtt_datas()
     active_brokers = [broker for broker in mqtt_list if broker.is_active]
     if not active_brokers:
         raise HTTPException(status_code=404, detail="No active MQTT broker data found")
     active_brokers.sort(key=lambda broker: broker.connected_publisher)
-
-    # broker list를 반환하기 전에 status check
-    for broker in active_brokers:
-        is_truly_active = await check_broker_status(broker.host, broker.port, timeout=0.5)
-        if is_truly_active:
-            if broker.host == "localhost":
-                broker = broker.model_copy(update={"host": _resolve_response_host(request_host)})
-            return MQTTDataResponse.model_validate(broker)
-        else:
-            # 만약에 broker가 죽었다면, db update
-            broker.is_active = False
-            await mqtt_repository.save_mqtt_data(broker)
-
-    # 모든 broker가 죽었다면 404 error 반환
-    raise HTTPException(status_code=404, detail="No active MQTT broker data found after real-time status check")
-
-
-async def set_mqtt_broker_data(
-        request_data: MQTTConnectedDataRequest) -> MQTTStatusResponse:
-    broker = await mqtt_repository.get_mqtt_data_by_id(request_data.broker_id)
-    if broker is None:
-        raise HTTPException(status_code=404, detail="No MQTT broker data found")
-    if not broker.is_active:
-        raise HTTPException(status_code=404, detail="MQTT broker is inactive")
-    normalized_topic = request_data.topic.strip()
-    if not normalized_topic:
-        raise HTTPException(status_code=400, detail="topic is required")
-    publishers: list[Publisher] = await publisher_repository.get_all_publisher_data()
-    for pub in publishers:
-        if pub.topic == normalized_topic:
-            raise HTTPException(status_code=409, detail="topic already using")
-    publisher = Publisher(
-        broker_id=broker.id,
-        host=request_data.publisher_host or "unknown",
-        topic=normalized_topic,
-    )
-    await publisher_repository.save_publisher_data(publisher)
-    mqtt_subscriber_service.register_publisher_topic(publisher.id, normalized_topic)
-    broker.connected_publisher += 1
-    saved = await mqtt_repository.save_mqtt_data(broker)
-    return MQTTStatusResponse.model_validate(saved)
-
-
-async def get_mqtt_status(request_host: str | None = None) -> list[MQTTStatusResponse]:
-    await _sync_connected_publisher_counts()
-    mqtt_list: list[MQTTBroker] = await mqtt_repository.get_all_mqtt_datas()
-    mqtt_list.sort(key=lambda broker: broker.id)
-    response_items: list[MQTTStatusResponse] = []
-    for broker in mqtt_list:
-        if broker.host == "localhost":
-            broker = broker.model_copy(update={"host": _resolve_response_host(request_host)})
-        response_items.append(MQTTStatusResponse.model_validate(broker))
-    return response_items
-
-
-async def set_mqtt_active(request_data: MQTTActiveRequest) -> MQTTStatusResponse:
-    broker = await mqtt_repository.get_mqtt_data_by_id(request_data.id)
-    if broker is None:
-        raise HTTPException(status_code=404, detail="No MQTT broker data found")
-    broker.is_active = request_data.is_active
-    return MQTTStatusResponse.model_validate(await mqtt_repository.save_mqtt_data(broker))
+    return MQTTDataResponse.model_validate(active_brokers[0])
 
 
 async def delete_mqtt_broker(broker_id: int) -> MQTTStatusResponse:
+    """MQTT 브로커를 삭제하는 함수."""
     broker = await mqtt_repository.get_mqtt_data_by_id(broker_id)
     if broker is None:
         raise HTTPException(status_code=404, detail="No MQTT broker data found")
-
-    publishers = await publisher_repository.get_all_publisher_data()
-    for publisher in publishers:
-        if publisher.broker_id != broker_id:
-            continue
-        await publisher_repository.delete_publisher_by_topic(publisher.topic)
-        mqtt_subscriber_service.unregister_publisher_topic(publisher.topic)
 
     await mqtt_repository.delete_mqtt_data_by_id(broker_id)
     return MQTTStatusResponse.model_validate(broker)
 
 
-async def get_all_publishers() -> list[PublisherResponse]:
-    publishers = await publisher_repository.get_all_publisher_data()
-    brokers = await mqtt_repository.get_all_mqtt_datas()
-    broker_map = {broker.id: broker for broker in brokers}
-    return [
-        PublisherResponse(
-            id=pub.id,
-            broker_id=pub.broker_id,
-            host=pub.host,
-            topic=pub.topic,
-            broker_host=broker_map[pub.broker_id].host if pub.broker_id in broker_map else "unknown",
-            broker_port=broker_map[pub.broker_id].port if pub.broker_id in broker_map else -1,
-            broker_is_active=broker_map[pub.broker_id].is_active if pub.broker_id in broker_map else False,
-        )
-        for pub in publishers
-    ]
+########################################################################################################################
+# status
 
-
-async def restore_publisher_subscriptions() -> None:
-    publishers = await publisher_repository.get_all_publisher_data()
-    for publisher in publishers:
-        mqtt_subscriber_service.register_publisher_topic(publisher.id, publisher.topic)
-
-
-async def publisher_subscription_sync_worker(interval: int = 3) -> None:
-    while True:
-        try:
-            await mqtt_subscriber_service.refresh_brokers()
-            await restore_publisher_subscriptions()
-            await _cleanup_stale_publishers()
-            await _sync_connected_publisher_counts()
-        except Exception as e:
-            logger.error("publisher subscription sync failed: %s", e)
-        await asyncio.sleep(interval)
-
-
-async def _sync_connected_publisher_counts() -> None:
-    brokers = await mqtt_repository.get_all_mqtt_datas()
-    publishers = await publisher_repository.get_all_publisher_data()
-
-    broker_counts: dict[int, int] = {}
-    for pub in publishers:
-        broker_counts[pub.broker_id] = broker_counts.get(pub.broker_id, 0) + 1
-
-    for broker in brokers:
-        actual_count = broker_counts.get(broker.id, 0)
-        if broker.connected_publisher != actual_count:
-            broker.connected_publisher = actual_count
-            await mqtt_repository.save_mqtt_data(broker)
-
-
-async def _cleanup_stale_publishers() -> None:
-    ttl_seconds = settings.mqtt_publisher_ttl_seconds
-    if ttl_seconds <= 0:
-        return
-
-    now = datetime.now(UTC)
-    publishers = await publisher_repository.get_all_publisher_data()
-    for publisher in publishers:
-        inactive_for = (now - publisher.updated_at).total_seconds()
-        if inactive_for <= ttl_seconds:
-            continue
-        deleted = await publisher_repository.delete_publisher_by_topic(publisher.topic)
-        mqtt_subscriber_service.unregister_publisher_topic(publisher.topic)
-        logger.warning(
-            "Publisher expired by TTL id=%s topic=%s inactive_for=%.1fs ttl=%ss deleted=%s",
-            publisher.id,
-            publisher.topic,
-            inactive_for,
-            ttl_seconds,
-            deleted,
-        )
-
-
-def _parse_mqtt_brokers() -> list[tuple[str, int]]:
-    if settings.mqtt_brokers.strip():
-        brokers: list[tuple[str, int]] = []
-        for item in settings.mqtt_brokers.split(","):
-            host, port = item.strip().split(":")
-            brokers.append((host.strip(), int(port.strip())))
-        return brokers
-
-    if settings.mqtt_broker_count <= 1:
-        return [(_resolve_advertised_host(), settings.mqtt_advertised_port_start)]
-
-    return [
-        (
-            _resolve_advertised_host(),
-            settings.mqtt_advertised_port_start + idx - 1,
-        )
-        for idx in range(1, settings.mqtt_broker_count + 1)
-    ]
-
-
-def _resolve_advertised_host() -> str:
-    if settings.mqtt_advertised_host == "localhost" and settings.mqtt_default_host.strip():
-        return settings.mqtt_default_host.strip()
-    return settings.mqtt_advertised_host
-
-
-def _resolve_response_host(request_host: str | None) -> str:
-    if settings.mqtt_default_host.strip():
-        return settings.mqtt_default_host.strip()
-    if request_host:
-        return request_host
-    return "localhost"
-
-
-async def register_mqtt_brokers() -> None:
-    await mqtt_repository.clear_mqtt_datas()
-
-    advertised_brokers = _parse_mqtt_brokers()
-    for idx, (host, port) in enumerate(advertised_brokers, start=1):
-        broker = MQTTBroker(
-            id=idx,
-            host=host,
-            port=port,
-            is_active=True,
-            connected_publisher=0,
-        )
-        await mqtt_repository.save_mqtt_data(broker)
-
-
-async def add_mqtt_broker(request_data: MQTTAddRequest) -> MQTTDataResponse:
-    broker: MQTTBroker = MQTTBroker(
-        host=request_data.mqtt_host,
-        port=request_data.mqtt_port,
-    )
-    broker.is_active = await check_broker_status(broker.host, broker.port)
-    await mqtt_repository.save_mqtt_data(broker)
-    return MQTTDataResponse.from_orm(broker)
+async def get_mqtt_status() -> list[MQTTStatusResponse]:
+    """전체 MQTT 브로커 상태 목록을 조회하는 함수.
+    브로커별 연결 퍼블리셔 수를 동기화한 뒤 정렬된 상태를 반환한다.
+    """
+    response_items: list[MQTTStatusResponse] = []
+    await publisher_service.sync_connected_publisher_counts()
+    mqtt_list: list[MQTTBroker] = await mqtt_repository.get_all_mqtt_datas()
+    mqtt_list.sort(key=lambda broker: broker.id)
+    for mqtt in mqtt_list:
+        response_items.append(MQTTStatusResponse.model_validate(mqtt))
+    return response_items
 
 
 async def check_broker_status(host: str, port: int, timeout: float = 2.0) -> bool:
@@ -239,11 +77,41 @@ async def check_broker_status(host: str, port: int, timeout: float = 2.0) -> boo
         기본 timeout은 2초로 설정됨.
     """
     try:
-        reader, writer = await asyncio.wait_for(
-            asyncio.open_connection(host, port), timeout=timeout
-        )
+        _reader, writer = await asyncio.wait_for(asyncio.open_connection(host, port), timeout=timeout)
         writer.close()
         await writer.wait_closed()
         return True
     except Exception:
         return False
+
+
+async def set_mqtt_active(request_data: MQTTActiveRequest) -> MQTTStatusResponse:
+    """특정 MQTT 브로커의 활성화 상태를 변경하는 함수.
+    요청된 `is_active` 값으로 상태를 저장하고 최신 상태를 반환한다.
+    """
+    broker = await mqtt_repository.get_mqtt_data_by_id(request_data.id)
+    if broker is None:
+        raise HTTPException(status_code=404, detail="No MQTT broker data found")
+    broker.is_active = request_data.is_active
+    return MQTTStatusResponse.model_validate(await mqtt_repository.save_mqtt_data(broker))
+
+
+async def sync_mqtt_broker_statuses(timeout: float = 2.0) -> None:
+    """모든 MQTT 브로커의 실시간 연결 상태를 동기화하는 함수.
+    상태가 변경된 브로커만 저장하고 변경 로그를 남긴다.
+    """
+    brokers = await mqtt_repository.get_all_mqtt_datas()
+    for broker in brokers:
+        is_active = await check_broker_status(broker.host, broker.port, timeout=timeout)
+        if broker.is_active == is_active:
+            continue
+        logger.info(
+            "Broker %s (%s:%s) changed status: %s -> %s",
+            broker.id,
+            broker.host,
+            broker.port,
+            broker.is_active,
+            is_active,
+        )
+        broker.is_active = is_active
+        await mqtt_repository.save_mqtt_data(broker)

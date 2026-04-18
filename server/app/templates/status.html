@@ -59,6 +59,12 @@
     const totalConnectionsEl = document.getElementById("total-connections");
     const lastUpdatedEl = document.getElementById("last-updated");
 
+    function parseStatusPayloadSafely(rawText) {
+        // Keep API response format unchanged; only protect large numeric ids in browser parsing.
+        const patched = rawText.replace(/("id"\s*:\s*)(\d{16,})/g, '$1"$2"');
+        return JSON.parse(patched);
+    }
+
     function updateSummary(brokers) {
         const active = brokers.filter((b) => b.is_active).length;
         const inactive = brokers.length - active;
@@ -91,12 +97,19 @@
                 </td>
                 <td>${broker.port}</td>
                 <td>${broker.connected_publisher}</td>
-                <td>
+                <td class="actions-cell">
                     <label class="switch">
                         <input type="checkbox" class="active-toggle" ${broker.is_active ? "checked" : ""}/>
                         <span class="slider"></span>
                     </label>
                     <span class="switch-text">${broker.is_active ? "Enabled" : "Disabled"}</span>
+                    <button
+                        type="button"
+                        class="delete-broker-btn"
+                        data-broker-id="${broker.id}"
+                        aria-label="Delete broker ${broker.id}"
+                        title="Delete broker"
+                    >remove</button>
                 </td>
             </tr>
         `).join("");
@@ -110,7 +123,8 @@
         try {
             const response = await fetch("/api/mqtt/status");
             if (!response.ok) throw new Error("failed");
-            const brokers = await response.json();
+            const rawText = await response.text();
+            const brokers = parseStatusPayloadSafely(rawText);
             renderRows(brokers);
         } catch (err) {
             tbody.innerHTML = '<tr><td colspan="5">Failed to load broker list.</td></tr>';
@@ -124,7 +138,8 @@
         if (!target.classList.contains("active-toggle")) return;
 
         const row = target.closest("tr");
-        const brokerId = Number(row.dataset.brokerId);
+        const brokerId = row.dataset.brokerId;
+        if (!brokerId) return;
         const isActive = target.checked;
 
         try {
@@ -138,6 +153,30 @@
         } catch (err) {
             target.checked = !isActive;
             alert("Failed to update broker status.");
+        }
+    });
+
+    tbody.addEventListener("click", async (event) => {
+        const deleteBtn = event.target.closest(".delete-broker-btn");
+        if (!deleteBtn) return;
+
+        const brokerId = deleteBtn.dataset.brokerId;
+        if (!brokerId) return;
+        if (!confirm(`Delete broker #${brokerId}?`)) return;
+
+        const originalText = deleteBtn.innerHTML;
+        deleteBtn.disabled = true;
+        deleteBtn.textContent = "...";
+
+        try {
+            const response = await fetch(`/api/mqtt/${brokerId}`, {method: "DELETE"});
+            if (!response.ok) throw new Error("delete failed");
+            await loadBrokers();
+        } catch (err) {
+            alert("Failed to delete broker.");
+        } finally {
+            deleteBtn.disabled = false;
+            deleteBtn.innerHTML = originalText;
         }
     });
 
