@@ -26,7 +26,7 @@ def main():
     my_ip = get_my_ip()
     payload = {
         "mqtt_host": my_ip,   
-        "mqtt_port": 1883
+        "mqtt_port": 1888
     }
 
     print("endpoint:", endpoint)

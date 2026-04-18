@@ -28,12 +28,11 @@ PUBLISHER_HOST_OVERRIDE = os.getenv("PUBLISHER_HOST", "")
 # generate random value
 # CAM_ID = random.randint(1, 9999)
 CAM_ID = ''.join(random.choices(string.ascii_letters + string.digits, k=8))
-
 TOPIC = f"{TOPIC_PREFIX}/{PUBLISHER_ID}/{CAM_ID}"
 LWT_TOPIC = f"{TOPIC}/status"
 
 # runtime status variables
-local_queue: deque[str] = deque()
+# local_queue: deque[str] = deque()
 is_connected = threading.Event()
 is_lock = threading.Lock()
 current_broker: dict = {}
@@ -59,7 +58,7 @@ def on_connect(client, userdata, flags, rc, properties):
         client.publish(LWT_TOPIC, build_lwt_payload("online"), qos=1, retain=True)
         log.info(f"LWT update → status=online")
 
-        flush_local_queue(client)
+        # flush_local_queue(client)
     else:
         log.error(f"Connection failed: rc={rc}")
         is_connected.clear()
@@ -83,6 +82,9 @@ def receive_broker_info() -> dict:
         try:
             res = requests.get(f"{SERVER_URL}/api/mqtt", timeout=5)
             res.raise_for_status()
+            log.info("==========================================")
+            log.info(res.json)
+            log.info("==========================================")
             broker = res.json()
             log.info(f"Broker info received: {broker}")
             return broker
@@ -124,7 +126,7 @@ def register_to_server(broker_id: int) -> None:
             res = requests.post(
                 f"{SERVER_URL}/api/publisher",
                 json={
-                    "id": broker_id,
+                    "broker_id": broker_id,
                     "publisher_host": publisher_host,
                     "topic": TOPIC,
                 },
@@ -145,6 +147,8 @@ def failover(client: mqtt.Client):
 
     for attempt in range(1, 11):
         try:
+            CAM_ID = ''.join(random.choices(string.ascii_letters + string.digits, k=8))
+            TOPIC = f"{TOPIC_PREFIX}/{PUBLISHER_ID}/{CAM_ID}"
             broker = receive_broker_info()
             register_to_server(broker["id"])
             host = resolve_host(broker["host"])
@@ -161,27 +165,27 @@ def failover(client: mqtt.Client):
             log.warning(f"Failover attempt ({attempt}/10) failed: {e}")
             time.sleep(3)
 
-    log.error("Failover exhausted. Messages preserved in local_queue.")
+    # log.error("Failover exhausted. Messages preserved in local_queue.")
 
 # queue retransmission
-def flush_local_queue(client: mqtt.Client):
-    with is_lock:
-        count = len(local_queue)
-    if count == 0:
-        return
+# def flush_local_queue(client: mqtt.Client):
+#     with is_lock:
+#         count = len(local_queue)
+#     if count == 0:
+#         return
 
-    log.info(f"Flushing local_queue: {count} messages")
-    while True:
-        with is_lock:
-            if not local_queue:
-                break
-            payload = local_queue.popleft()
-        result = client.publish(TOPIC, payload, qos=1)
-        if result.rc != mqtt.MQTT_ERR_SUCCESS:
-            with is_lock:
-                local_queue.appendleft(payload)
-            log.error("Flush failed, stopping flush.")
-            break
+#     log.info(f"Flushing local_queue: {count} messages")
+#     while True:
+#         with is_lock:
+#             if not local_queue:
+#                 break
+#             payload = local_queue.popleft()
+#         result = client.publish(TOPIC, payload, qos=1)
+#         if result.rc != mqtt.MQTT_ERR_SUCCESS:
+#             with is_lock:
+#                 local_queue.appendleft(payload)
+#             log.error("Flush failed, stopping flush.")
+#             break
 
 # make a data
 def build_payload_stream(publish_callback):
@@ -280,17 +284,19 @@ def main():
         })
 
         if not is_connected.is_set():
-            with is_lock:
-                local_queue.append(payload)
-            log.warning(f"Broker unavailable → queued (queue_size={len(local_queue)})")
+            # with is_lock:
+                # local_queue.append(payload)
+            # log.warning(f"Broker unavailable → queued (queue_size={len(local_queue)})")
+            log.warning(f"Broker unavailable")
         else:
             result = client.publish(TOPIC, payload, qos=1)
             if result.rc == mqtt.MQTT_ERR_SUCCESS:
                 log.info(f"Published frame (topic={TOPIC})")
             else:
-                with is_lock:
-                    local_queue.append(payload)
-                log.error(f"Publish failed (rc={result.rc}) → queued")
+                # with is_lock:
+                    # local_queue.append(payload)
+                # log.error(f"Publish failed (rc={result.rc}) → queued")
+                log.error(f"Publish failed (rc={result.rc})")
 
     try:
         build_payload_stream(on_frame)
