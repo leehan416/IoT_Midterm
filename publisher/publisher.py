@@ -10,9 +10,8 @@ import base64
 from collections import deque
 from urllib.parse import urlparse
 import subprocess
-import uuid
 import random
-import uuid
+import string
 
 logging.basicConfig(
     level=logging.INFO,
@@ -27,7 +26,8 @@ PUBLISH_INTERVAL = float(os.getenv("PUBLISH_INTERVAL", "1.0"))
 MQTT_HOST_OVERRIDE = os.getenv("MQTT_HOST_OVERRIDE", "")
 PUBLISHER_HOST_OVERRIDE = os.getenv("PUBLISHER_HOST", "")
 # generate random value
-CAM_ID = random.randint(1, 9999)
+# CAM_ID = random.randint(1, 9999)
+CAM_ID = ''.join(random.choices(string.ascii_letters + string.digits, k=8))
 
 TOPIC = f"{TOPIC_PREFIX}/{PUBLISHER_ID}/{CAM_ID}"
 LWT_TOPIC = f"{TOPIC}/status"
