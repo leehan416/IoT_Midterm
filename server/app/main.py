@@ -8,8 +8,8 @@ import asyncio
 from app.routes.api_routes import router as api_router
 from app.routes.comon_routes import router as comon_router
 import app.services.mqtt_service as mqtt_service
-from app.services.mqtt_subscriber_service import mqtt_subscriber_service
-from app.services.video_stream_hub import video_stream_hub
+import app.services.mqtt_subscriber_service as mqtt_subscriber_service
+import app.services.video_stream_hub as video_stream_hub
 from app.config.settings import ensure_runtime_dirs
 from app.scheduler.mqtt_checker import mqtt_status_checker
 
@@ -19,11 +19,10 @@ async def lifespan(_app: FastAPI):
     ensure_runtime_dirs()
     video_stream_hub.set_event_loop(asyncio.get_running_loop())
 
-    await mqtt_service.register_mqtt_brokers()
     await mqtt_service.restore_publisher_subscriptions()
     checker_task = asyncio.create_task(mqtt_status_checker())
     publisher_sync_task = asyncio.create_task(mqtt_service.publisher_subscription_sync_worker())
-    mqtt_subscriber_service.start()
+    await mqtt_subscriber_service.start()
     try:
         yield
     finally:

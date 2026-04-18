@@ -21,10 +21,9 @@ async def healthcheck_api() -> HealthCheckResponse:
 # publisher
 
 @router.get("/publisher")
-@router.get("/publisher/all")
+# @router.get("/publisher/all")
 async def get_all_publisher_data_api() -> list[PublisherResponse]:
     return await mqtt_service.get_all_publishers()
-########################################################################################################################
 
 @router.post("/publisher")
 async def set_mqtt_broker_data_api(

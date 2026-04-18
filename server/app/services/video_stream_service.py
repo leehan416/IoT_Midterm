@@ -6,7 +6,7 @@ import time
 from fastapi import WebSocket, WebSocketDisconnect
 
 from app.config.settings import settings
-from app.services.video_stream_hub import video_stream_hub
+import app.services.video_stream_hub as video_stream_hub
 
 logger = logging.getLogger(__name__)
 

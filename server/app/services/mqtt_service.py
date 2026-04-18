@@ -9,7 +9,7 @@ import logging
 from datetime import UTC, datetime
 
 import app.repository.mqtt_repository as mqtt_repository
-from app.services.mqtt_subscriber_service import mqtt_subscriber_service
+import app.services.mqtt_subscriber_service as mqtt_subscriber_service
 
 logger = logging.getLogger(__name__)
 
@@ -127,6 +127,7 @@ async def restore_publisher_subscriptions() -> None:
 async def publisher_subscription_sync_worker(interval: int = 3) -> None:
     while True:
         try:
+            await mqtt_subscriber_service.refresh_brokers()
             await restore_publisher_subscriptions()
             await _cleanup_stale_publishers()
             await _sync_connected_publisher_counts()
