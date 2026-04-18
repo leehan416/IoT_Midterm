@@ -7,7 +7,7 @@ from app.services.mqtt_service import check_broker_status
 logger = logging.getLogger(__name__)
 
 
-async def mqtt_status_checker(interval: int = 10):
+async def mqtt_status_checker(interval: int = 1):
     """
     1. get_all_mqtt_datas : redis에서 모든 broker의 정보를 가져온다. 
     2. check_brokers_status : 만약에 이전 정보와 현재 정보가 다르다면, 로그를 남긴다. 
