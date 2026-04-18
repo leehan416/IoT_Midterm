@@ -82,9 +82,6 @@ def receive_broker_info() -> dict:
         try:
             res = requests.get(f"{SERVER_URL}/api/mqtt", timeout=5)
             res.raise_for_status()
-            log.info("==========================================")
-            log.info(res.json)
-            log.info("==========================================")
             broker = res.json()
             log.info(f"Broker info received: {broker}")
             return broker
@@ -149,9 +146,18 @@ def failover(client: mqtt.Client):
         try:
             CAM_ID = ''.join(random.choices(string.ascii_letters + string.digits, k=8))
             TOPIC = f"{TOPIC_PREFIX}/{PUBLISHER_ID}/{CAM_ID}"
+            LWT_TOPIC = f"{TOPIC}/status"
+
             broker = receive_broker_info()
             register_to_server(broker["id"])
             host = resolve_host(broker["host"])
+
+            client.will_set(
+                topic=LWT_TOPIC,
+                payload=build_lwt_payload("offline"),
+                qos=1,
+                retain=True
+            )
 
             client.disconnect()
             client.connect(host, broker["port"], keepalive=60)
