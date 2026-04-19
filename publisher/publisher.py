@@ -215,7 +215,7 @@ def build_payload_stream(publish_callback):
     """
     cmd = [
         "rpicam-vid", "-t", "0", "--inline", "-n",
-        "--width", "640", "--height", "480",
+        "--width", "320", "--height", "240",
         "--codec", "mjpeg", "-o", "-"
     ]
 

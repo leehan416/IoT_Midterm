@@ -21,7 +21,7 @@ def main():
     api_host = sys.argv[1]
     api_port = int(sys.argv[2]) if len(sys.argv) >= 3 else 8000
 
-    endpoint = f"http://{api_host}:{api_port}/api/mqtt/add"
+    endpoint = f"http://{api_host}:{api_port}/api/mqtt"
 
     my_ip = get_my_ip()
     payload = {
