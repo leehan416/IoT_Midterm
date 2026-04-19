@@ -4,22 +4,39 @@
 
 ```text
 .
+├── .env
+├── .env.sample
 ├── data/
 │   ├── mosquitto/
 │   │   ├── config/
 │   │   ├── data/
 │   │   └── log/
 │   ├── nginx/
+│   │   └── nginx.conf
 │   └── redis/
 ├── docker-compose.yml
 ├── publisher/
-│   └── readme.md
+│   ├── camera_test.c
+│   ├── docker-compose.snippet.yml
+│   ├── http_requester.py
+│   ├── publisher.py
+│   ├── readme.md
+│   └── requirements.txt
 ├── readme.md
 └── server/
+    ├── Dockerfile
     ├── .env
     ├── .env.example
-    ├── Dockerfile
     ├── app/
+    │   ├── config/
+    │   ├── models/
+    │   ├── repository/
+    │   ├── routes/
+    │   ├── scheduler/
+    │   ├── schemas/
+    │   ├── services/
+    │   ├── static/
+    │   └── templates/
     ├── pyproject.toml
     ├── readme.md
     └── uv.lock

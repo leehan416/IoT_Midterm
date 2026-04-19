@@ -127,3 +127,11 @@ async def sync_publisher_subscription_state() -> None:
     await restore_publisher_subscriptions()
     await _cleanup_stale_publishers()
     await sync_connected_publisher_counts()
+
+
+async def remove_publishers_by_broker_id(broker_id: int) -> int:
+    """브로커에 연결된 퍼블리셔를 모두 삭제하고 토픽 구독을 해제하는 함수."""
+    deleted_publishers = await publisher_repository.delete_publishers_by_broker_id(broker_id)
+    for publisher in deleted_publishers:
+        mqtt_subscriber_service.unregister_publisher_topic(publisher.topic)
+    return len(deleted_publishers)

@@ -162,3 +162,25 @@ async def get_publisher_by_topic(topic: str) -> Publisher | None:
         if data:
             return _build_publisher(data)
     return None
+
+
+async def delete_publishers_by_broker_id(broker_id: int) -> list[Publisher]:
+    redis_client = get_redis_client(REDIS_PUBLISHER_DB)
+    deleted_publishers: list[Publisher] = []
+
+    async for key in redis_client.scan_iter(match="publisher:*"):
+        if key == PUBLISHER_SEQ_KEY:
+            continue
+        key_type = await redis_client.type(key)
+        if key_type != "hash":
+            continue
+        data = await redis_client.hgetall(key)
+        if not data:
+            continue
+        publisher = _build_publisher(data)
+        if publisher.broker_id != broker_id:
+            continue
+        deleted_publishers.append(publisher)
+        await redis_client.delete(key)
+
+    return deleted_publishers

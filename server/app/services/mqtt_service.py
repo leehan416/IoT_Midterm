@@ -51,6 +51,7 @@ async def delete_mqtt_broker(broker_id: int) -> MQTTStatusResponse:
     if broker is None:
         raise HTTPException(status_code=404, detail="No MQTT broker data found")
 
+    await publisher_service.remove_publishers_by_broker_id(broker_id)
     await mqtt_repository.delete_mqtt_data_by_id(broker_id)
     return MQTTStatusResponse.model_validate(broker)
 
