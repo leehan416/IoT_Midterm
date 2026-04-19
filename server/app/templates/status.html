@@ -5,8 +5,76 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
     <title>{{ title }}</title>
     <link rel="stylesheet" href="/static/css/app.css"/>
+    <style>
+        .top-nav-wrap {
+            background: #efefef;
+            border-top: 1px solid #cfcfcf;
+            border-bottom: 1px solid #d6d6d6;
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.08);
+        }
+        .top-nav {
+            max-width: 1160px;
+            margin: 0 auto;
+            padding: 10px 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+        }
+        .top-nav-logo {
+            text-decoration: none;
+            color: #1f2737;
+            font-size: 18px;
+            font-weight: 800;
+            letter-spacing: 0.04em;
+            line-height: 1;
+        }
+        .top-nav-menu {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .top-nav-item {
+            text-decoration: none;
+            color: #1d6ce3;
+            font-size: 14px;
+            font-weight: 600;
+            line-height: 1;
+            padding: 8px 14px;
+            border-radius: 8px;
+            display: inline-block;
+        }
+        .top-nav-item.is-active {
+            background: #1d6ce3;
+            color: #fff;
+        }
+        @media (max-width: 768px) {
+            .top-nav {
+                padding: 8px 12px;
+            }
+            .top-nav-logo {
+                font-size: 15px;
+            }
+            .top-nav-menu {
+                gap: 6px;
+            }
+            .top-nav-item {
+                font-size: 12px;
+                padding: 7px 10px;
+            }
+        }
+    </style>
 </head>
 <body>
+<header class="top-nav-wrap">
+    <nav class="top-nav" aria-label="Main menu">
+        <a class="top-nav-logo" href="/">IOT-MIDTERM</a>
+        <div class="top-nav-menu">
+            <a class="top-nav-item" href="/">Bashboard</a>
+            <a class="top-nav-item is-active" href="/status">Status</a>
+        </div>
+    </nav>
+</header>
 <main class="container">
     <section class="hero">
         <div>

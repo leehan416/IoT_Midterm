@@ -6,6 +6,48 @@
     <title>{{ title }}</title>
     <link rel="stylesheet" href="/static/css/app.css"/>
     <style>
+        .top-nav-wrap {
+            background: #efefef;
+            border-top: 1px solid #cfcfcf;
+            border-bottom: 1px solid #d6d6d6;
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.08);
+        }
+        .top-nav {
+            max-width: 1160px;
+            margin: 0 auto;
+            padding: 10px 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+        }
+        .top-nav-logo {
+            text-decoration: none;
+            color: #1f2737;
+            font-size: 18px;
+            font-weight: 800;
+            letter-spacing: 0.04em;
+            line-height: 1;
+        }
+        .top-nav-menu {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .top-nav-item {
+            text-decoration: none;
+            color: #1d6ce3;
+            font-size: 14px;
+            font-weight: 600;
+            line-height: 1;
+            padding: 8px 14px;
+            border-radius: 8px;
+            display: inline-block;
+        }
+        .top-nav-item.is-active {
+            background: #1d6ce3;
+            color: #fff;
+        }
         .video-grid {
             display: grid;
             grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -52,6 +94,19 @@
             }
         }
         @media (max-width: 768px) {
+            .top-nav {
+                padding: 8px 12px;
+            }
+            .top-nav-logo {
+                font-size: 15px;
+            }
+            .top-nav-menu {
+                gap: 6px;
+            }
+            .top-nav-item {
+                font-size: 12px;
+                padding: 7px 10px;
+            }
             .video-grid {
                 grid-template-columns: 1fr;
             }
@@ -59,9 +114,17 @@
     </style>
 </head>
 <body>
+<header class="top-nav-wrap">
+    <nav class="top-nav" aria-label="Main menu">
+        <a class="top-nav-logo" href="/">IOT-MIDTERM</a>
+        <div class="top-nav-menu">
+            <a class="top-nav-item is-active" href="/">Bashboard</a>
+            <a class="top-nav-item" href="/status">Status</a>
+        </div>
+    </nav>
+</header>
 <main class="container">
     <h1>IoT Video Dashboard</h1>
-    <p>실시간 카메라 스트리밍 (MQTT + WebSocket)</p>
     <p id="publisher-count">연결된 퍼블리셔: 0</p>
 
     <div class="video-grid" id="video-grid"></div>
