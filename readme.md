@@ -4,20 +4,8 @@
 
 ```text
 .
-├── .env
-├── .env.sample
-├── data/
-│   ├── mosquitto/
-│   │   ├── config/
-│   │   ├── data/
-│   │   └── log/
-│   ├── nginx/
-│   │   └── nginx.conf
-│   └── redis/
 ├── docker-compose.yml
 ├── publisher/
-│   ├── camera_test.c
-│   ├── docker-compose.snippet.yml
 │   ├── http_requester.py
 │   ├── publisher.py
 │   ├── readme.md
@@ -25,8 +13,6 @@
 ├── readme.md
 └── server/
     ├── Dockerfile
-    ├── .env
-    ├── .env.example
     ├── app/
     │   ├── config/
     │   ├── models/
@@ -47,13 +33,26 @@
 From the project root:
 
 ```bash
+# server
 docker compose up -d --build
+
+# broker register
+cd publisher 
+python3 http_requester.py {server_host} {server_port}
+
+# publisher
+cd publisher 
+python3 -m venv .venv
+source .venv/bin/activate
+
+pip install paho-mqtt requests
+
+SERVER_URL=http://localhost:80 PUBLISHER_ID=camera-1 python3 publisher.py
+#SERVER_URL={server_host} PUBLISHER_ID={TOPIC} python3 publisher.py
 ```
 
 Access:
-
 - `http://localhost/` (Nginx, port 80)
-- `http://localhost:443/` (Nginx, port 443 over plain HTTP in current setup)
 
 Stop:
 
@@ -61,23 +60,25 @@ Stop:
 docker compose down
 ```
 
-## Streaming Architecture Change
+## Compose env
 
-- Removed: C subscriber + Redis Pub/Sub video pipeline.
-- Added: FastAPI internal MQTT subscriber -> in-memory hub -> WebSocket push (`/api/ws/video/{camera_id}`).
-- MQTT broker management APIs (`/api/mqtt`, `/api/mqtt/status`) are unchanged.
-- Redis is still used for broker status/state storage only (temporary).
+`.env.sample`:
 
-## Manual Test
+```env
+REDIS_HOST=redis
+REDIS_PORT=6379
 
-1. Start stack:
-```bash
-docker compose up -d --build
+MQTT_HOST=mosquitto
+MQTT_PORT=1883
 ```
-2. Start publisher:
-```bash
-cd publisher
-SERVER_URL=http://[ip]:80 PUBLISHER_ID=camera-1 python publisher.py
+
+`generate env` :
+``` bash
+cat > .env <<'EOF'
+REDIS_HOST=redis
+REDIS_PORT=6379
+
+MQTT_HOST=mosquitto
+MQTT_PORT=1883
+EOF
 ```
-3. Open [http://localhost/](http://localhost/) and check camera cards update.
-4. In browser devtools, confirm WebSocket frames are received from `/api/ws/video/{camera_id}`.
