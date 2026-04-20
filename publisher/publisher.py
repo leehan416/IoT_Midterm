@@ -164,6 +164,8 @@ def failover(client: mqtt.Client):
 
             broker = receive_broker_info()
             register_to_server(broker["id"])
+            current_broker = broker
+            
             host = resolve_host(broker["host"])
 
             client.will_set(
@@ -177,7 +179,6 @@ def failover(client: mqtt.Client):
             client.connect(host, broker["port"], keepalive=60)
 
             if is_connected.wait(timeout=5.0):
-                current_broker = broker
                 log.info(f"Failover success → {host}:{broker['port']}")
                 return
 
@@ -209,14 +210,11 @@ def failover(client: mqtt.Client):
 
 # make a data
 def build_payload_stream(publish_callback):
-    """
-    rpicam-vid MJPEG 스트림을 파이프로 읽어서
-    JPEG 프레임(SOI~EOI)이 완성될 때마다 publish_callback을 호출
-    """
+
     cmd = [
         "rpicam-vid", "-t", "0", "--inline", "-n",
         "--width", "320", "--height", "240",
-        "--codec", "mjpeg", "-o", "-"
+        "--codec", "mjpeg", "--quality", "50", "-o", "-"
     ]
 
     process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -287,7 +285,7 @@ def main():
     client.connect(mqtt_host, broker["port"], keepalive=60)
     client.loop_start()
 
-    log.info("MJPEG 스트리밍 모드 시작")
+    log.info("start a MJPEG streaming mode")
 
     def on_frame(frame_bytes):
         img_b64 = base64.b64encode(frame_bytes).decode("utf-8")
